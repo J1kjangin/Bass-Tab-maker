@@ -1,0 +1,29 @@
+[project]
+name = "bass-tab"
+version = "0.1.0"
+description = "Bass tab extractor: audio link/file -> bass tablature"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "yt-dlp",
+    "demucs",
+    "torch",
+    "torchcrepe",
+    "librosa",
+    "soundfile",
+    "numpy",
+    "beat-this>=1.1.0",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+# Intel Mac caps torch at 2.2; resolving only for Windows/Linux lets torch float to current.
+environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bass_tab"]
