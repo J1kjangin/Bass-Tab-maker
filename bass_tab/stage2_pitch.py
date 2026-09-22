@@ -15,9 +15,9 @@ CREPE_SR = 16000
 HOP = int(round(PITCH_HOP_S * CREPE_SR))  # 160 samples
 FMIN = 32.7        # below ~31.7 Hz torchcrepe returns -inf for every frame (CLAUDE.md)
 FMAX = 400.0
-# "full" ~2.5-3.5 s per audio-second on this CPU; "tiny" ~0.15 s and matched full on the
-# synthetic test. Kept "full" (accuracy first) until real-audio comparison says otherwise.
-MODEL = "full"
+# Real 60 s excerpt on CPU: "full" 2.05 s per audio-second, "tiny" 0.18 s (11x faster).
+# Where both were voiced, 99.6% agreed within half a semitone, 0 octave errors -> "tiny".
+MODEL = "tiny"
 CONF_THRESHOLD = 0.5   # design doc: periodicity < 0.5 -> unvoiced
 SILENCE_DB = -50.0     # frame RMS this far below the loudest frame -> unvoiced
 # torchcrepe runs the network and viterbi per batch, so this is also the memory chunk.
