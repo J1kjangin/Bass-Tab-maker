@@ -16,6 +16,13 @@ from bass_tab.contracts import TICKS_PER_BEAT, Tab
 _DURATIONS = [(16, "1"), (12, "2{d}"), (8, "2"), (6, "4{d}"), (4, "4"), (3, "8{d}"), (2, "8"), (1, "16")]
 
 
+_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def _note_name(midi: int) -> str:
+    return f"{_NAMES[midi % 12]}{midi // 12 - 1}"
+
+
 def _split(ticks: int) -> list[str]:
     out = []
     for size, dur in _DURATIONS:
@@ -64,7 +71,7 @@ def to_alphatex(tab: Tab) -> str:
         f'\\title "{title}"',
         '\\track "Bass" { instrument 33 }',
         "\\staff { score tabs }",
-        "\\tuning (G2 D2 A1 E1)",
+        f"\\tuning ({' '.join(_note_name(m) for m in tab.tuning)})",
         "\\clef F4",
         f"\\ts ({tab.beats_per_bar} 4)",
         f"\\tempo {round(tab.bpm)}",

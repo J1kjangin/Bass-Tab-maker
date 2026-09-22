@@ -13,7 +13,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from bass_tab.contracts import OPEN_MIDI, TAB_JSON, load_tab  # noqa: E402
+from bass_tab.contracts import NOTES_JSON, OPEN_MIDI, TAB_JSON, load_notes, load_tab  # noqa: E402
+
+START_WINDOW_S = 3.0
 
 
 def score(det: list[tuple[int, int, int, int, int]], ref, ghosts, tol: int) -> dict:
@@ -55,14 +57,23 @@ def pitch_report(det, ref, ghosts) -> dict:
     }
 
 
-def evaluate(tab_notes, spec: dict) -> dict:
-    ref = [(t, OPEN_MIDI[s] + f, s, f, n) for t, s, f, n in spec["notes"]]
+def evaluate(tab_notes, spec: dict, starts: list[float] | None = None) -> dict:
+    """starts: detected note onset seconds (same order as tab_notes). With spec["start_s"]
+    (approx. time of reference tick 0) the alignment search stays within +-START_WINDOW_S,
+    so a repeated section elsewhere in the song can't be picked instead."""
+    tuning = spec.get("tuning") or [OPEN_MIDI[s] for s in (1, 2, 3, 4)]
+    ref = [(t, tuning[s - 1] + f, s, f, n) for t, s, f, n in spec["notes"]]
     raw = [(n.tick, n.midi, n.string, n.fret, n.length) for n in tab_notes]
 
     def shifted(off):
         return [(t - off, m, s, f, n) for t, m, s, f, n in raw]
 
-    off = max(range(-64, 257), key=lambda o: score(shifted(o), ref, spec["ghost_ticks"], 0)["matched"])
+    if starts is not None and "start_s" in spec:
+        near = [n.tick for n, s in zip(tab_notes, starts) if abs(s - spec["start_s"]) <= START_WINDOW_S]
+        offsets = range(min(near) - 8, max(near) + 9) if near else range(0)
+    else:
+        offsets = range(-64, max((n.tick for n in tab_notes), default=0) + 1)
+    off = max(offsets, key=lambda o: score(shifted(o), ref, spec["ghost_ticks"], 0)["matched"])
     det = shifted(off)
     return {"offset_ticks": off,
             "exact": score(det, ref, spec["ghost_ticks"], 0),
@@ -72,7 +83,8 @@ def evaluate(tab_notes, spec: dict) -> dict:
 
 def main(job_dir: str, ref_path: str) -> dict:
     spec = json.loads(Path(ref_path).read_text(encoding="utf-8"))
-    out = evaluate(load_tab(Path(job_dir) / TAB_JSON).notes, spec)
+    starts = [n.start for n in load_notes(Path(job_dir) / NOTES_JSON)]
+    out = evaluate(load_tab(Path(job_dir) / TAB_JSON).notes, spec, starts)
     print(json.dumps(out, indent=1))
     return out
 

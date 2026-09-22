@@ -1,4 +1,4 @@
-from bass_tab.contracts import OPEN_MIDI, Note
+from bass_tab.contracts import OPEN_MIDI, TUNINGS, Note
 from bass_tab.stage5_frets import assign
 
 
@@ -23,6 +23,11 @@ def test_open_strings():
 def test_chromatic_run_stays_in_position():
     pos = positions(assign(notes(40, 41, 42, 43, 44)))
     assert pos == [(2, 2), (2, 3), (2, 4), (2, 5), (2, 6)]
+
+
+def test_drop_d_plays_low_d_without_octave_shift():
+    tab = assign(notes(26, 27, 28), TUNINGS["drop-d"])
+    assert [(t.midi, t.string, t.fret) for t in tab] == [(26, 4, 0), (27, 4, 1), (28, 4, 2)]
 
 
 def test_out_of_range_is_octave_shifted():

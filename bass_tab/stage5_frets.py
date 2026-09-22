@@ -7,31 +7,28 @@ Negative costs are fine: the DP is a min-sum over a layered DAG (no cycles), so 
 optimum is exact regardless of sign.
 
 Out-of-range notes (no string/fret can play them) are octave-shifted into range
-(below E1 -> up, above G string fret MAX_FRET -> down). The returned TabNote.midi is the
-shifted pitch, so OPEN_MIDI[string] + fret == TabNote.midi always holds.
+(below the lowest open string -> up, above the top string's MAX_FRET -> down). The returned
+TabNote.midi is the shifted pitch, so tuning[string - 1] + fret == TabNote.midi always holds.
 """
 from __future__ import annotations
 
-from bass_tab.contracts import MAX_FRET, OPEN_MIDI, Note, TabNote
+from bass_tab.contracts import MAX_FRET, TUNINGS, Note, TabNote
 
 FRET_WEIGHT = 2
 STRING_CHANGE = 1
 OPEN_BONUS = -2
 
-LOWEST = min(OPEN_MIDI.values())
-HIGHEST = max(OPEN_MIDI.values()) + MAX_FRET
 
-
-def _in_range(midi: int) -> int:
-    while midi < LOWEST:
+def _in_range(midi: int, lowest: int, highest: int) -> int:
+    while midi < lowest:
         midi += 12
-    while midi > HIGHEST:
+    while midi > highest:
         midi -= 12
     return midi
 
 
-def _candidates(midi: int) -> list[tuple[int, int]]:
-    return [(s, midi - o) for s, o in OPEN_MIDI.items() if 0 <= midi - o <= MAX_FRET]
+def _candidates(midi: int, open_midi: dict[int, int]) -> list[tuple[int, int]]:
+    return [(s, midi - o) for s, o in open_midi.items() if 0 <= midi - o <= MAX_FRET]
 
 
 def _cost(prev: tuple[int, int] | None, cur: tuple[int, int]) -> int:
@@ -41,17 +38,20 @@ def _cost(prev: tuple[int, int] | None, cur: tuple[int, int]) -> int:
     return c
 
 
-def assign(notes: list[Note]) -> list[TabNote]:
+def assign(notes: list[Note], tuning=TUNINGS["standard"]) -> list[TabNote]:
+    """tuning: open-string MIDI, string 1 (highest) first."""
     if not notes:
         return []
-    pitches = [_in_range(n.midi) for n in notes]
+    open_midi = dict(enumerate(tuning, 1))
+    lo, hi = min(tuning), max(tuning) + MAX_FRET
+    pitches = [_in_range(n.midi, lo, hi) for n in notes]
     # layers[i]: candidate -> (total cost, best previous candidate)
-    layers = [{c: (_cost(None, c), None) for c in _candidates(pitches[0])}]
+    layers = [{c: (_cost(None, c), None) for c in _candidates(pitches[0], open_midi)}]
     for p in pitches[1:]:
         prev = layers[-1]
         layers.append({
             c: min(((pc + _cost(q, c), q) for q, (pc, _) in prev.items()), key=lambda t: t[0])
-            for c in _candidates(p)
+            for c in _candidates(p, open_midi)
         })
     pos = min(layers[-1], key=lambda c: layers[-1][c][0])
     path = [pos]

@@ -63,3 +63,19 @@ def test_silence_raises(tmp_path):
     sf.write(tmp_path / "mix.wav", np.zeros((SR * 5, 2)), SR, subtype="PCM_16")
     with pytest.raises(PipelineError):
         track(tmp_path)
+
+
+def test_fill_missing_beats():
+    from bass_tab.stage3_beats import fill_missing
+    true = np.arange(40) * 0.31
+    dropped = np.delete(true, [3, 7, 8, 15, 20, 21, 22, 30])      # gaps of 2x and 4x
+    assert np.allclose(fill_missing(dropped), true)
+    steady = np.arange(40) * 0.5 + np.tile([0, 0.02], 20)          # 20 ms jitter only
+    assert np.array_equal(fill_missing(steady), steady)
+
+
+def test_beats_per_bar_ignores_missed_downbeats():
+    from bass_tab.stage3_beats import _beats_per_bar
+    assert _beats_per_bar(np.array([4, 8, 8, 4, 8, 8, 4, 8])) == 4
+    assert _beats_per_bar(np.array([3, 3, 6, 3, 3])) == 3
+    assert _beats_per_bar(np.array([4, 4, 4, 1, 5, 4])) == 4

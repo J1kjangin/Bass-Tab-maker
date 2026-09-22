@@ -26,8 +26,9 @@ SR = 44100
 PITCH_HOP_S = 0.01        # Stage 2 frame step (10 ms)
 TICKS_PER_BEAT = 4        # 16th-note grid
 
-# Standard 4-string bass. String numbers follow AlphaTex: 1 = G (highest) ... 4 = E (lowest).
-OPEN_MIDI = {1: 43, 2: 38, 3: 33, 4: 28}
+# 4-string bass, open-string MIDI in AlphaTex string order: string 1 (highest) first.
+TUNINGS = {"standard": (43, 38, 33, 28), "drop-d": (43, 38, 33, 26)}
+OPEN_MIDI = dict(enumerate(TUNINGS["standard"], 1))  # 1 = G ... 4 = E
 MAX_FRET = 20
 
 
@@ -95,6 +96,7 @@ class Tab:
     bpm: float
     beats_per_bar: int
     notes: list[TabNote]
+    tuning: list[int] = field(default_factory=lambda: list(TUNINGS["standard"]))
 
 
 # ---- JSON helpers -----------------------------------------------------------

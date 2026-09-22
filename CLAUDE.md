@@ -9,6 +9,7 @@
 uv sync                                  # Python 3.12 venv (.venv)
 uv run pytest -q                         # 전체 테스트
 uv run python -m bass_tab <링크|파일>     # 전체 파이프라인 → jobs/{id}/tab.html
+uv run python -m bass_tab <링크> --tuning drop-d   # Drop D(DADG) 곡
 ```
 
 결과가 있는 Stage는 건너뛴다(`--force`로 재실행). `tab.html`은 CDN을 쓰므로
@@ -23,9 +24,16 @@ uv run python -m bass_tab <링크|파일>     # 전체 파이프라인 → jobs/
   fmin=32.7, fmax=400에서 E1~G3 테스트음 오차 0.5% 이내 확인.
 - beat_this 1.1.0 (`final0`, cpu): 120BPM 합성 드럼에서 BPM 120.0 검출 확인.
 - BeatNet은 madmom 빌드(MSVC 필요)로 설치 불가 → 사용하지 않음.
-- 실제 곡(394초, CPU): Stage 0 9초, Stage 1 htdemucs 286초, Stage 2 tiny 37초
-  (full은 2.05초/음원초라 약 13분), Stage 3 17~66초, Stage 4 2초.
+- 실제 곡(394초, CPU): Stage 0 9초, Stage 1 htdemucs 286초, Stage 2 full 약 2.1초/음원초
+  (3분 곡 약 6~7분), Stage 3 17~66초, Stage 4 2초.
+- torchcrepe 모델은 `full`, `tiny` 두 개뿐. tiny는 기음이 약한 베이스 음색에서 유성 프레임을
+  17%만 잡아(full 50%) 큰 음을 통째로 놓쳤다 → **full 사용**.
+- torchcrepe viterbi는 무음 뒤 경로가 fmin 칸에 붙어 짧은 음을 놓친다 → Stage 2는 신경망 1회에
+  viterbi + weighted_argmax 두 디코딩, 신뢰도는 최대 확률로 계산.
+- CPU 추론은 실행마다 미세하게 달라 반올림 음이 1.5% 프레임에서 바뀔 수 있다(점수 ±1노트).
 - torchcrepe는 백트래킹한 온셋보다 20~60ms 늦게 유성 판정 → Stage 4는 온셋 기준으로 분절한다.
+- beat_this(dbn=False)는 빠른 곡(190BPM)에서 비트의 절반가량을 빠뜨려 반 템포가 된다
+  → Stage 3에서 정수배 간격을 채운다(`fill_missing`). 다운비트도 빠지므로 마디 박 수는 배수 규칙으로 정한다.
 
 ## 정확도 평가
 
@@ -33,12 +41,21 @@ uv run python -m bass_tab <링크|파일>     # 전체 파이프라인 → jobs/
 uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxwio_intro.json
 ```
 
-- 정답: 사용자가 준 타브 이미지의 인트로 7마디(41노트), `tools/reference/`.
-  남이 만든 편곡을 옮긴 데이터라 **gitignore(로컬 전용)**. 저장소에 올리지 않는다.
-- Stage 4/5 파라미터는 **이 점수를 올릴 때만** 바꾼다. 현재: 박자+음높이 일치 F1 0.90,
-  음높이 39/41, 줄·프렛 일치 29/37.
-- 기각된 시도(점수 개선 없음): beat grid 평활화, backtrack 끄기, 손 폭(span) 기반 프렛 비용.
-- 정답이 한 곡 41노트뿐이라 과적합 위험이 있다. 정답 곡이 늘면 reference를 추가한다.
+- 정답 4곡 144노트, `tools/reference/*.json` (사용자가 확인함). 남이 만든 편곡을 옮긴 데이터라
+  **gitignore(로컬 전용)**. 저장소에 올리지 않는다. `start_s`는 정답 첫 마디의 대략 시각(정렬 범위 제한).
+- 정답 확인용 렌더링: `uv run python tools/render_reference.py tools/reference/X.json` → `jobs/_refs/X.html`.
+- 파라미터는 **4곡 합산 점수가 오르고 어느 곡도 크게 나빠지지 않을 때만** 바꾼다.
+
+| 곡 | 특징 | 박자+음높이 F1 | ±1칸 F1 |
+|---|---|---|---|
+| awBbD1fxwio | 130BPM 찬송가 커버 | 0.87 | 0.87 |
+| QKKfpx8Db58 | 115BPM, 16분 많음 | 0.77 | 0.84 |
+| ukwrjTTdgmE | 190BPM, Drop D | 0.78 | 0.94 |
+| 9A-jZh_T_b8 | 84BPM 발라드 | 0.78 | 0.85 |
+| **합산** | | **0.803** | |
+
+- 기각된 시도: beat grid 평활화, backtrack 끄기, 손 폭 기반 프렛 비용, 더 강한 METER_PRIOR
+  (합산 +0.01이지만 16분이 많은 곡이 0.77→0.71).
 
 ## 설계서 대비 변경점
 
@@ -48,6 +65,8 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 | Stage 3 | BeatNet | `beat_this` | 코드·가중치 모두 MIT, madmom 불필요, 설치 검증됨 |
 | Stage 4 | 피치 변화로만 분절 | + 베이스 트랙 온셋으로 분절 | 같은 음 반복 연주가 한 노트로 합쳐지는 결함 |
 | Stage 1 | htdemucs_6s 고정 | `model` 인자로 선택, 기본 `htdemucs` | 사용자 청음 비교 후 확정 |
+| Stage 2 | 옥타브 보정 | 사용 안 함 | 약간 낮게 친 E1을 E2로 잘못 올림 |
+| Stage 5 | EADG 고정 | `--tuning` (standard, drop-d) | Drop D 곡의 D1이 옥타브 이동됨 |
 
 ## 데이터 계약
 
@@ -60,12 +79,12 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 | `stage2_pitch.py` | `track(job_dir, device="cpu") -> Pitch` | `bass.wav` | `pitch.npz` |
 | `stage3_beats.py` | `track(job_dir, device="cpu") -> Beats` | `mix.wav` | `beats.json` |
 | `stage4_notes.py` | `segment(job_dir) -> list[Note]` | `pitch.npz`, `beats.json`, `bass.wav` | `notes.json` |
-| `stage5_frets.py` | `assign(notes: list[Note]) -> list[TabNote]` | 순수 함수 | — |
+| `stage5_frets.py` | `assign(notes, tuning=TUNINGS["standard"]) -> list[TabNote]` | 순수 함수 | — |
 | `stage6_render.py` | `to_alphatex(tab: Tab) -> str` | 순수 함수 | — |
 | `web/index.html` | AlphaTab 뷰어 | `tab.alphatex` | 브라우저 렌더링 |
 
 - 사용자에게 보여줄 실패(라이브 방송, 비공개 영상, 베이스 미검출 등)는 `PipelineError`를 던진다.
-- 현 번호는 AlphaTex 규칙을 따른다: 1=G, 2=D, 3=A, 4=E.
+- 현 번호는 AlphaTex 규칙을 따른다: 1=G(최고음) … 4=E 또는 D(최저음). 튜닝은 `Tab.tuning`.
 
 ## 병렬 개발 규칙 (서브에이전트용)
 
