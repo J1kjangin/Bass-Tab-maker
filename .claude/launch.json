@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "jobs",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "jobs"],
+      "port": 8765
+    }
+  ]
+}

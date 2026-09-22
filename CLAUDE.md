@@ -6,9 +6,13 @@
 ## 실행
 
 ```bash
-uv sync                 # Python 3.12 venv (.venv)
-uv run pytest -q        # 전체 테스트
+uv sync                                  # Python 3.12 venv (.venv)
+uv run pytest -q                         # 전체 테스트
+uv run python -m bass_tab <링크|파일>     # 전체 파이프라인 → jobs/{id}/tab.html
 ```
+
+결과가 있는 Stage는 건너뛴다(`--force`로 재실행). `tab.html`은 CDN을 쓰므로
+`.claude/launch.json`의 `jobs` 서버(http://localhost:8765)로 연다.
 
 ## 검증된 환경 사실 (2026-09-21, Phase 1)
 
@@ -19,6 +23,9 @@ uv run pytest -q        # 전체 테스트
   fmin=32.7, fmax=400에서 E1~G3 테스트음 오차 0.5% 이내 확인.
 - beat_this 1.1.0 (`final0`, cpu): 120BPM 합성 드럼에서 BPM 120.0 검출 확인.
 - BeatNet은 madmom 빌드(MSVC 필요)로 설치 불가 → 사용하지 않음.
+- 실제 곡(394초, CPU): Stage 0 9초, Stage 1 htdemucs 286초, Stage 2 tiny 37초
+  (full은 2.05초/음원초라 약 13분), Stage 3 17~66초, Stage 4 2초.
+- torchcrepe는 백트래킹한 온셋보다 20~60ms 늦게 유성 판정 → Stage 4는 온셋 기준으로 분절한다.
 
 ## 설계서 대비 변경점
 
