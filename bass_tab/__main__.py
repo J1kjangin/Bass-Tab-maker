@@ -55,21 +55,27 @@ def write_viewer(tex: str, out: Path) -> None:
 
 
 def run(source: str, job_dir: Path, sep_model: str, device: str, force: bool,
-        tuning: str = "standard") -> Path:
+        tuning: str = "standard", on_stage=None) -> Path:
+    """on_stage(stage, progress_percent) is called before each stage (used by the job server).
+    Percentages follow measured CPU time shares: separation ~30%, pitch ~60%."""
     steps = [
-        ("0 input", META, lambda: stage0_input.fetch(source, job_dir)),
-        ("1 separate", BASS_WAV, lambda: stage1_separate.separate(job_dir, sep_model, device)),
-        ("2 pitch", PITCH_NPZ, lambda: stage2_pitch.track(job_dir, device)),
-        ("3 beats", BEATS_JSON, lambda: stage3_beats.track(job_dir, device)),
-        ("4 notes", NOTES_JSON, lambda: stage4_notes.segment(job_dir)),
+        ("input", 0, META, lambda: stage0_input.fetch(source, job_dir)),
+        ("separation", 2, BASS_WAV, lambda: stage1_separate.separate(job_dir, sep_model, device)),
+        ("pitch", 32, PITCH_NPZ, lambda: stage2_pitch.track(job_dir, device)),
+        ("beats", 92, BEATS_JSON, lambda: stage3_beats.track(job_dir, device)),
+        ("notes", 97, NOTES_JSON, lambda: stage4_notes.segment(job_dir)),
     ]
-    for name, out, fn in steps:
+    for name, pct, out, fn in steps:
+        if on_stage:
+            on_stage(name, pct)
         if (job_dir / out).exists() and not force:
             print(f"[stage {name}] skip ({out} exists)")
             continue
         t0 = time.perf_counter()
         fn()
         print(f"[stage {name}] {time.perf_counter() - t0:.1f}s")
+    if on_stage:
+        on_stage("render", 98)
 
     meta, beats = load_meta(job_dir / META), load_beats(job_dir / BEATS_JSON)
     open_midi = TUNINGS[tuning]

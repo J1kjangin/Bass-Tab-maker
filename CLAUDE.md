@@ -15,6 +15,20 @@ uv run python -m bass_tab <링크> --tuning drop-d   # Drop D(DADG) 곡
 결과가 있는 Stage는 건너뛴다(`--force`로 재실행). `tab.html`은 CDN을 쓰므로
 `.claude/launch.json`의 `jobs` 서버(http://localhost:8765)로 연다.
 
+### 웹 서비스 (Phase 4)
+
+```bash
+uv run uvicorn bass_tab.server:app --host 127.0.0.1 --port 8000   # http://localhost:8000
+```
+
+- API는 설계서 0.4와 같다: `POST /api/jobs`(form: `url` 또는 `file`, `tuning`), `GET /api/jobs/{id}`,
+  `GET /api/jobs/{id}/result`. 화면은 `web/app.html`(2초 폴링 → AlphaTab 렌더).
+- 작업자는 **프로세스 내 스레드 1개**. Celery는 4.x부터 Windows 미지원, Redis는 Windows에서 Docker/Memurai
+  필요 → 로컬 CPU에서는 한 곡이 코어를 다 쓰므로 동시 실행 이득도 없다. Linux 배포 시 작업자만 Celery로 교체.
+- 상태는 `jobs/{id}/status.json`. 서버 재시작 시 대기/처리 중이던 작업은 failed로 표시된다.
+- 입력 검증: http(s) 링크만, 오디오 확장자만, 업로드 200MB 이하, 작업 ID 정규식, 파일명 정리.
+- 실측: 30초 업로드 → 100초에 완료(분리 31초, 피치 65초).
+
 ## 검증된 환경 사실 (2026-09-21, Phase 1)
 
 - Windows 11, Python 3.12.14 (uv 관리), ffmpeg 9.0.1, torch 2.14.0+cpu.

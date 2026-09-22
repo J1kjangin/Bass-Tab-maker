@@ -12,10 +12,16 @@ dependencies = [
     "soundfile",
     "numpy",
     "beat-this>=1.1.0",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.53.0",
+    "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest",
+]
 
 [tool.uv]
 # Intel Mac caps torch at 2.2; resolving only for Windows/Linux lets torch float to current.
