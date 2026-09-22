@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import os
 import re
 import sys
 import time
@@ -29,6 +30,21 @@ def job_id_for(source: str) -> str:
     else:
         raw = Path(source).stem
     return re.sub(r"[^\w.-]", "_", raw) or "job"
+
+
+def pick_device(requested: str) -> str:
+    """"auto" -> cuda only if a real op succeeds there. torch can report cuda as available
+    and still fail every op (seen: cu126 torch on a driver that only supports CUDA 12.2)."""
+    import torch
+    if requested == "auto":
+        try:
+            torch.ones(1, device="cuda").add_(1).item()
+            requested = "cuda"
+        except Exception:
+            requested = "cpu"
+    if requested == "cpu":
+        torch.set_num_threads(os.cpu_count() or 1)  # default was 4 of 8; measured 14% faster
+    return requested
 
 
 def write_viewer(tex: str, out: Path) -> None:
@@ -74,14 +90,16 @@ def main() -> None:
     p.add_argument("source", help="YouTube/music URL or local audio file")
     p.add_argument("--job-id", help="job folder name (default: video id / file name)")
     p.add_argument("--sep-model", default="htdemucs", help="Demucs model (htdemucs, htdemucs_6s)")
-    p.add_argument("--device", default="cpu")
+    p.add_argument("--device", default="auto", help="auto, cpu or cuda")
     p.add_argument("--force", action="store_true", help="redo stages even if outputs exist")
     p.add_argument("--tuning", default="standard", choices=sorted(TUNINGS))
     a = p.parse_args()
     job_dir = ROOT / "jobs" / (a.job_id or job_id_for(a.source))
     job_dir.mkdir(parents=True, exist_ok=True)
+    device = pick_device(a.device)
+    print("device:", device)
     try:
-        out = run(a.source, job_dir, a.sep_model, a.device, a.force, a.tuning)
+        out = run(a.source, job_dir, a.sep_model, device, a.force, a.tuning)
     except PipelineError as e:
         sys.exit(f"오류: {e}")
     print("tab:", out)

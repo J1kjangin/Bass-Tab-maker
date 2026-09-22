@@ -43,7 +43,9 @@ def _decode(audio: torch.Tensor, device: str) -> tuple[np.ndarray, np.ndarray]:
     """
     vit, arg, conf = [], [], []
     with torch.no_grad():
-        for frames in preprocess(audio, CREPE_SR, HOP, BATCH, device, True):
+        # GT 1030 (2 GB, ~0.7 GB taken by the display): 512 peaked at 1376 MiB, 256 at 734 MiB, same speed
+        batch = BATCH if device == "cpu" else 256
+        for frames in preprocess(audio, CREPE_SR, HOP, batch, device, True):
             probs = infer(frames, MODEL, device).reshape(1, -1, PITCH_BINS).transpose(1, 2)
             vit.append(postprocess(probs.clone(), FMIN, FMAX, torchcrepe.decode.viterbi))
             f, p = postprocess(probs, FMIN, FMAX, torchcrepe.decode.weighted_argmax,

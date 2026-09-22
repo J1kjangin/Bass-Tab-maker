@@ -18,7 +18,12 @@ uv run python -m bass_tab <링크> --tuning drop-d   # Drop D(DADG) 곡
 ## 검증된 환경 사실 (2026-09-21, Phase 1)
 
 - Windows 11, Python 3.12.14 (uv 관리), ffmpeg 9.0.1, torch 2.14.0+cpu.
-- GPU: GT 1030 2GB. 현재 torch는 CPU 빌드 → **모든 Stage는 `device="cpu"` 기본값**으로 작성.
+- GPU: GT 1030 2GB(sm_61), 드라이버 537.13 = CUDA 12.2. 프로젝트 torch는 CPU 빌드.
+  - torch 2.14+cu126은 GPU를 인식하지만 모든 연산이 `cudaErrorDevicesUnavailable`(런타임 > 드라이버).
+    torch 2.5.1+cu121에서는 정상 동작 → 원인은 드라이버. NVIDIA 580 계열이 Pascal 마지막 지원 드라이버.
+  - GPU 측정(60초 구간): Stage 2 0.35~0.70초/음원초(CPU 8스레드 1.73~1.87), VRAM 배치 256에서 734MiB.
+    Stage 1 Demucs는 GPU 39.5초 vs CPU 46.7초로 이득이 작다.
+- CLI `--device auto`(기본): GPU에서 실제 연산이 성공할 때만 cuda, 아니면 cpu + 전체 코어(4→8스레드, 14% 향상).
 - Demucs 4.1.0 (adefossez 유지판, PyPI `demucs`): CPU로 약 1배속 (5.85초 음원 5초).
 - torchcrepe: `fmin`은 **반드시 32.7 이상**. 31.7Hz 미만을 주면 모든 프레임이 무성(-inf)으로 깨진다.
   fmin=32.7, fmax=400에서 E1~G3 테스트음 오차 0.5% 이내 확인.
