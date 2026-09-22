@@ -6,3 +6,6 @@ jobs/
 *.mp3
 *.m4a
 *.webm
+
+# hand-transcribed reference tabs (third-party arrangements): keep local only
+tools/reference/

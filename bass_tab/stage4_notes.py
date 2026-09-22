@@ -24,6 +24,15 @@ MIN_NOTE_S = 0.05         # design doc; voiced time required inside a note inter
 ONSET_SR = 22050
 ONSET_LAG_FRAMES = 12     # voicing within 120 ms after an onset belongs to that onset
 LEGATO_MIN_FRAMES = 10    # a pitch change without onset must hold 100 ms to count
+GAP_FILL_FRAMES = 5       # unvoiced dropouts this short inside one pitch are bridged
+ONSET_BACKTRACK = True    # librosa backtrack: move onsets to the preceding energy minimum
+# Snapping cost = distance in 16ths + penalty: an ambiguous onset (players drift +-50 ms,
+# half a 16th at 130 BPM is 58 ms) prefers the beat, then the 8th, over an odd 16th.
+# Reference intro (41 notes): exact matches 32 -> 37; plateau from (0.1, 0.35) up to (0.2, 0.5).
+# Smoothing the beat grid against beat_this's 20 ms jitter was tried and did not help.
+METER_PRIOR = (0.1, 0.35)  # (8th, 16th) penalties
+# Reference intro: real same-pitch re-plucks rose +15/+32 dB, spurious onsets -0.6..+1 dB.
+REPLUCK_DB = 6.0
 
 
 def _runs(labels: np.ndarray) -> list[tuple[int, int, int]]:
@@ -43,21 +52,51 @@ def _absorb_short(labels: np.ndarray) -> np.ndarray:
     return out
 
 
+def _fill_gaps(labels: np.ndarray) -> np.ndarray:
+    """Bridge short unvoiced dropouts between two frames of the same pitch."""
+    out = labels.copy()
+    runs = _runs(labels)
+    for (_, _, a), (s, e, lab), (_, _, b) in zip(runs, runs[1:], runs[2:]):
+        if lab < 0 and a >= 0 and a == b and e - s <= GAP_FILL_FRAMES:
+            out[s:e] = a
+    return out
+
+
 def _onset_frames(bass_wav: Path) -> np.ndarray:
     y, sr = librosa.load(bass_wav, sr=ONSET_SR, mono=True)
-    t = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=True)
+    t = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=ONSET_BACKTRACK)
     return np.round(t / PITCH_HOP_S).astype(int)
 
 
-def segment_frames(pitch: Pitch, onset_frames: np.ndarray) -> list[tuple[int, float, float]]:
-    """-> [(midi, start_s, end_s)] before quantization."""
+def _frame_rms(bass_wav: Path, n: int) -> np.ndarray:
+    y, sr = librosa.load(bass_wav, sr=16000, mono=True)
+    rms = librosa.feature.rms(y=y, frame_length=1024, hop_length=160, center=True)[0]
+    return np.pad(rms, (0, max(0, n - len(rms))))[:n]
+
+
+def _is_repluck(k: int, midi: np.ndarray, rms: np.ndarray) -> bool:
+    """An onset inside a note of unchanged pitch counts only if the level jumps."""
+    n = len(midi)
+    before, after = midi[max(k - 1, 0)], midi[min(k + 3, n - 1)]
+    if k < 4 or k + 6 > n or before < 0 or before != after:
+        return True  # pitch change, attack from silence, or edge of the song: keep
+    rise = rms[k + 2:k + 6].max() / max(rms[k - 4:k].min(), 1e-9)
+    return 20 * np.log10(max(rise, 1e-9)) >= REPLUCK_DB
+
+
+def segment_frames(pitch: Pitch, onset_frames: np.ndarray,
+                   rms: np.ndarray | None = None) -> list[tuple[int, float, float]]:
+    """-> [(midi, start_s, end_s)] before quantization. rms: per-frame level for the
+    same-pitch re-pluck check (skipped when None)."""
     voiced = ~np.isnan(pitch.f0)
     midi = np.full(len(pitch.f0), -1)
     midi[voiced] = np.round(librosa.hz_to_midi(pitch.f0[voiced])).astype(int)
-    midi = _absorb_short(midi)
+    midi = _absorb_short(_fill_gaps(midi))
 
     n = len(midi)
     onsets = np.unique(np.clip(onset_frames, 0, n - 1))
+    if rms is not None:
+        onsets = np.array([k for k in onsets if _is_repluck(int(k), midi, rms)], dtype=int)
 
     def after_onset(k: int) -> bool:
         i = np.searchsorted(onsets, k, side="right") - 1
@@ -100,7 +139,14 @@ def quantize(raw: list[tuple[int, float, float]], beats: list[float], downbeats:
         return []
     b = np.asarray(beats, dtype=float)
     grid, pre = _grid(b, raw[0][1], raw[-1][2])
-    snap = lambda t: int(np.argmin(np.abs(grid - t)))  # noqa: E731
+    step = np.diff(grid, append=grid[-1] + (grid[-1] - grid[-2]))
+    # grid index % 4: 0 = beat, 2 = 8th, 1/3 = 16th
+    penalty = np.array([0.0, METER_PRIOR[1], METER_PRIOR[0], METER_PRIOR[1]])
+
+    def snap(t: float) -> int:
+        k = int(np.argmin(np.abs(grid - t)))
+        cand = [i for i in (k - 1, k, k + 1) if 0 <= i < len(grid)]
+        return min(cand, key=lambda i: abs(grid[i] - t) / step[min(i, k)] + penalty[i % 4])
 
     # tick 0 = first downbeat; step back whole bars so no note lands before tick 0.
     # ponytail: one global bar phase; misdetected downbeats later in the song are ignored.
@@ -125,7 +171,8 @@ def segment(job_dir: Path) -> list[Note]:
     job_dir = Path(job_dir)
     pitch = Pitch.load(job_dir / PITCH_NPZ)
     beats = load_beats(job_dir / BEATS_JSON)
-    raw = segment_frames(pitch, _onset_frames(job_dir / BASS_WAV))
+    bass = job_dir / BASS_WAV
+    raw = segment_frames(pitch, _onset_frames(bass), _frame_rms(bass, len(pitch.f0)))
     notes = quantize(raw, beats.beats, beats.downbeats, beats.beats_per_bar)
     save_json(notes, job_dir / NOTES_JSON)
     return notes

@@ -2,7 +2,7 @@ import numpy as np
 import soundfile as sf
 
 from bass_tab.contracts import Beats, Pitch, load_notes, save_json
-from bass_tab.stage4_notes import quantize, segment
+from bass_tab.stage4_notes import quantize, segment, segment_frames
 
 SR = 44100
 # (midi, hz, start_s, dur_s); second A1 is a re-pluck of the same pitch with no f0 gap
@@ -35,6 +35,16 @@ def test_segment_splits_repluck_and_quantizes(tmp_path):
     got = [(n.midi, n.tick, n.length) for n in notes]
     assert got == [(33, 0, 4), (33, 4, 4), (38, 8, 2), (28, 12, 8)], got
     assert load_notes(tmp_path / "notes.json") == notes
+
+
+def test_same_pitch_onset_needs_level_jump():
+    f0 = np.full(100, 55.0)
+    p = Pitch(np.arange(100) * 0.01, f0, np.full(100, 0.9))
+    flat = np.full(100, 0.1)
+    jump = flat.copy(); jump[52:] = 0.4                 # +12 dB re-pluck at frame 50
+    onsets = np.array([0, 50])
+    assert len(segment_frames(p, onsets, flat)) == 1    # spurious onset ignored
+    assert len(segment_frames(p, onsets, jump)) == 2    # real re-pluck kept
 
 
 def test_pickup_note_shifts_origin_back_a_bar():

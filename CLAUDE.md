@@ -27,6 +27,19 @@ uv run python -m bass_tab <링크|파일>     # 전체 파이프라인 → jobs/
   (full은 2.05초/음원초라 약 13분), Stage 3 17~66초, Stage 4 2초.
 - torchcrepe는 백트래킹한 온셋보다 20~60ms 늦게 유성 판정 → Stage 4는 온셋 기준으로 분절한다.
 
+## 정확도 평가
+
+```bash
+uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxwio_intro.json
+```
+
+- 정답: 사용자가 준 타브 이미지의 인트로 7마디(41노트), `tools/reference/`.
+  남이 만든 편곡을 옮긴 데이터라 **gitignore(로컬 전용)**. 저장소에 올리지 않는다.
+- Stage 4/5 파라미터는 **이 점수를 올릴 때만** 바꾼다. 현재: 박자+음높이 일치 F1 0.90,
+  음높이 39/41, 줄·프렛 일치 29/37.
+- 기각된 시도(점수 개선 없음): beat grid 평활화, backtrack 끄기, 손 폭(span) 기반 프렛 비용.
+- 정답이 한 곡 41노트뿐이라 과적합 위험이 있다. 정답 곡이 늘면 reference를 추가한다.
+
 ## 설계서 대비 변경점
 
 | 항목 | 설계서 | 변경 | 근거 |
