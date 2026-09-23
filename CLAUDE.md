@@ -75,6 +75,9 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 
 - 기각된 시도: beat grid 평활화, backtrack 끄기, 손 폭 기반 프렛 비용, 더 강한 METER_PRIOR
   (합산 +0.01이지만 16분이 많은 곡이 0.77→0.71).
+- 위 표는 `htdemucs` 기준(곡 전체). 분리 모델 비교는 정답 구간(±8초)만 잘라 동일 조건으로 측정:
+  htdemucs 정확 F1 0.757 / ±1칸 0.862, htdemucs_6s 0.776 / 0.850 (143노트 중 4개 차이).
+  지표가 서로 반대라 **기본값 htdemucs 유지**. 곡별로는 빠른 록·발라드에서 6s가 0.08 앞섰다.
 
 ## 설계서 대비 변경점
 
@@ -83,7 +86,7 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 | Stage 2 | `crepe` (TF) | `torchcrepe` | Demucs와 PyTorch 공유 |
 | Stage 3 | BeatNet | `beat_this` | 코드·가중치 모두 MIT, madmom 불필요, 설치 검증됨 |
 | Stage 4 | 피치 변화로만 분절 | + 베이스 트랙 온셋으로 분절 | 같은 음 반복 연주가 한 노트로 합쳐지는 결함 |
-| Stage 1 | htdemucs_6s 고정 | `model` 인자로 선택, 기본 `htdemucs` | 사용자 청음 비교 후 확정 |
+| Stage 1 | htdemucs_6s 고정 | `model` 인자로 선택, 기본 `htdemucs` | 정답 4곡 비교에서 두 모델 차이가 노이즈 수준 |
 | Stage 2 | 옥타브 보정 | 사용 안 함 | 약간 낮게 친 E1을 E2로 잘못 올림 |
 | Stage 5 | EADG 고정 | `--tuning` (standard, drop-d) | Drop D 곡의 D1이 옥타브 이동됨 |
 
