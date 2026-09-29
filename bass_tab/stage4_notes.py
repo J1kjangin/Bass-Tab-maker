@@ -33,6 +33,16 @@ ONSET_BACKTRACK = True    # librosa backtrack: move onsets to the preceding ener
 METER_PRIOR = (0.1, 0.35)  # (8th, 16th) penalties
 # Reference intro: real same-pitch re-plucks rose +15/+32 dB, spurious onsets -0.6..+1 dB.
 REPLUCK_DB = 6.0
+# Slide / passing tones: short, not plucked, close in pitch to a neighbour. The length limit
+# is relative to the 16th grid, not absolute: at 190 BPM a 16th is 79 ms, at 84 BPM 178 ms,
+# and a fixed 0.13 s limit started eating real 8th notes of the fast song (F1 0.78 -> 0.72).
+GLIDE_TICKS = 1.0
+GLIDE_SEMITONES = 3
+GLIDE_FALLBACK_S = 0.12  # when the tempo is unknown (segment_frames called without it)
+# Trim a note's unvoiced lead-in: a pitchless ghost (muted) click merged with the pluck after it
+# put notes a 16th early. Beyond 40 ms the lead-in is not this note's attack.
+LEAD_TRIM_FRAMES = 4     # unvoiced frames tolerated before trimming
+LEAD_TRIM_BACK = 2       # voicing lags the attack by 20-60 ms, so keep 20 ms of it
 
 
 def _runs(labels: np.ndarray) -> list[tuple[int, int, int]]:
@@ -84,10 +94,16 @@ def _is_repluck(k: int, midi: np.ndarray, rms: np.ndarray) -> bool:
     return 20 * np.log10(max(rise, 1e-9)) >= REPLUCK_DB
 
 
-def segment_frames(pitch: Pitch, onset_frames: np.ndarray,
-                   rms: np.ndarray | None = None) -> list[tuple[int, float, float]]:
+def _note_label(labels: np.ndarray) -> int:
+    """The note's pitch. Tried and no better on the references: skipping the first 2-8 attack
+    frames, and taking the longest constant run instead of the most common value."""
+    return int(np.bincount(labels).argmax())
+
+
+def segment_frames(pitch: Pitch, onset_frames: np.ndarray, rms: np.ndarray | None = None,
+                   tick_s: float | None = None) -> list[tuple[int, float, float]]:
     """-> [(midi, start_s, end_s)] before quantization. rms: per-frame level for the
-    same-pitch re-pluck check (skipped when None)."""
+    same-pitch re-pluck check (skipped when None). tick_s: seconds per 16th note."""
     voiced = ~np.isnan(pitch.f0)
     midi = np.full(len(pitch.f0), -1)
     midi[voiced] = np.round(librosa.hz_to_midi(pitch.f0[voiced])).astype(int)
@@ -110,14 +126,36 @@ def segment_frames(pitch: Pitch, onset_frames: np.ndarray,
             bounds.add(s)  # soft attack after silence, or held pitch change (legato)
     edges = sorted(bounds) + [n]
 
-    notes = []
+    plucked = set(onsets.tolist())
+    notes, was_plucked = [], []
     for a, b in zip(edges, edges[1:]):
         v = np.flatnonzero(midi[a:b] >= 0)
         if len(v) * PITCH_HOP_S < MIN_NOTE_S:
             continue
-        lab = int(np.bincount(midi[a:b][v]).argmax())
-        notes.append((lab, float(pitch.time[a]), float(pitch.time[a + v[-1]] + PITCH_HOP_S)))
-    return notes
+        lab = _note_label(midi[a:b][v])
+        head = int(v[0])
+        start = a + head - LEAD_TRIM_BACK if head > LEAD_TRIM_FRAMES else a
+        notes.append((lab, float(pitch.time[max(a, start)]),
+                      float(pitch.time[a + v[-1]] + PITCH_HOP_S)))
+        was_plucked.append(a in plucked)
+    limit = GLIDE_TICKS * tick_s if tick_s else GLIDE_FALLBACK_S
+    return _drop_glides(notes, was_plucked, limit)
+
+
+def _drop_glides(notes: list[tuple[int, float, float]], plucked: list[bool], limit: float):
+    """Absorb slide/passing tones: a short segment that was never plucked and sits within
+    GLIDE_SEMITONES of a neighbour is the glide between two notes, not a note. The preceding
+    note keeps the time. Plucked notes are never dropped, so fast picked runs survive."""
+    out: list[tuple[int, float, float]] = []
+    for i, (midi, start, end) in enumerate(notes):
+        nb = [notes[j][0] for j in (i - 1, i + 1) if 0 <= j < len(notes)]
+        if (not plucked[i] and end - start < limit
+                and any(abs(midi - x) <= GLIDE_SEMITONES for x in nb)):
+            if out:  # give the time to the note before it
+                out[-1] = (out[-1][0], out[-1][1], end)
+            continue
+        out.append((midi, start, end))
+    return out
 
 
 def _grid(beats: np.ndarray, t_min: float, t_max: float) -> tuple[np.ndarray, int]:
@@ -172,7 +210,8 @@ def segment(job_dir: Path) -> list[Note]:
     pitch = Pitch.load(job_dir / PITCH_NPZ)
     beats = load_beats(job_dir / BEATS_JSON)
     bass = job_dir / BASS_WAV
-    raw = segment_frames(pitch, _onset_frames(bass), _frame_rms(bass, len(pitch.f0)))
+    tick_s = 60.0 / beats.bpm / TICKS_PER_BEAT
+    raw = segment_frames(pitch, _onset_frames(bass), _frame_rms(bass, len(pitch.f0)), tick_s)
     notes = quantize(raw, beats.beats, beats.downbeats, beats.beats_per_bar)
     save_json(notes, job_dir / NOTES_JSON)
     return notes
