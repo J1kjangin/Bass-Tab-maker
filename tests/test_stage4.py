@@ -80,3 +80,17 @@ def test_unvoiced_lead_in_moves_the_note_start():
     notes = segment_frames(p, np.array([0]), np.full(48, 0.1), tick_s=0.115)
     assert len(notes) == 1 and abs(notes[0][1] - 0.06) < 1e-9
 
+
+
+def test_unplucked_same_pitch_continues_the_note():
+    # pitch drops out for 100 ms and comes back on the same note without a pluck
+    p = _frames([(33, 30), (None, 10), (33, 30)])
+    notes = segment_frames(p, np.array([0]), np.full(70, 0.1), tick_s=0.115)
+    assert [n[0] for n in notes] == [33] and abs(notes[0][2] - 0.70) < 1e-9
+
+
+def test_grid_shift_keeps_a_slightly_late_band_on_the_beat():
+    beats = [1.0 + 0.5 * k for k in range(6)]          # 120 BPM, 16th = 0.125 s
+    lag = 0.05                                          # 0.4 of a 16th: within half a tick
+    late = [(33, 1.0 + lag, 1.4), (35, 1.5 + lag, 1.9), (36, 2.0 + lag, 2.4)]
+    assert [n.tick for n in quantize(late, beats, [1.0, 3.0], 4)] == [0, 4, 8]

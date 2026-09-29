@@ -1,4 +1,4 @@
-"""Stage 4: frame pitch + beats + bass onsets -> quantized notes (notes.json).
+﻿"""Stage 4: frame pitch + beats + bass onsets -> quantized notes (notes.json).
 
 Onset-driven: each bass onset (pluck) starts a note, which fixes the design doc's
 pitch-only rule merging repeated plucks of one pitch. Extra boundaries without an onset:
@@ -30,9 +30,13 @@ ONSET_BACKTRACK = True    # librosa backtrack: move onsets to the preceding ener
 # half a 16th at 130 BPM is 58 ms) prefers the beat, then the 8th, over an odd 16th.
 # Reference intro (41 notes): exact matches 32 -> 37; plateau from (0.1, 0.35) up to (0.2, 0.5).
 # Smoothing the beat grid against beat_this's 20 ms jitter was tried and did not help.
+GROOVE_SHIFT = True  # shift the 16th grid by the median note offset
 METER_PRIOR = (0.1, 0.35)  # (8th, 16th) penalties
 # Reference intro: real same-pitch re-plucks rose +15/+32 dB, spurious onsets -0.6..+1 dB.
-REPLUCK_DB = 6.0
+# Re-pluck level rise. Works together with the same-pitch merge in _drop_glides: unplucked
+# continuations are removed there, so this gate can stay loose. 4 references: 6 dB -> 0.878,
+# 2.5 dB -> 0.889, 1 dB -> 0.872, 0 dB -> 0.805.
+REPLUCK_DB = 2.5
 # Slide / passing tones: short, not plucked, close in pitch to a neighbour. The length limit
 # is relative to the 16th grid, not absolute: at 190 BPM a 16th is 79 ms, at 84 BPM 178 ms,
 # and a fixed 0.13 s limit started eating real 8th notes of the fast song (F1 0.78 -> 0.72).
@@ -73,6 +77,8 @@ def _fill_gaps(labels: np.ndarray) -> np.ndarray:
 
 
 def _onset_frames(bass_wav: Path) -> np.ndarray:
+    # Tried and no better on the references: capping how far backtracking may run (1-12
+    # envelope frames), and turning backtracking off.
     y, sr = librosa.load(bass_wav, sr=ONSET_SR, mono=True)
     t = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=ONSET_BACKTRACK)
     return np.round(t / PITCH_HOP_S).astype(int)
@@ -149,8 +155,9 @@ def _drop_glides(notes: list[tuple[int, float, float]], plucked: list[bool], lim
     out: list[tuple[int, float, float]] = []
     for i, (midi, start, end) in enumerate(notes):
         nb = [notes[j][0] for j in (i - 1, i + 1) if 0 <= j < len(notes)]
-        if (not plucked[i] and end - start < limit
-                and any(abs(midi - x) <= GLIDE_SEMITONES for x in nb)):
+        same_as_prev = bool(out) and out[-1][0] == midi  # no pluck, same pitch: one note
+        if not plucked[i] and (same_as_prev or (end - start < limit
+                and any(abs(midi - x) <= GLIDE_SEMITONES for x in nb))):
             if out:  # give the time to the note before it
                 out[-1] = (out[-1][0], out[-1][1], end)
             continue
@@ -177,6 +184,11 @@ def quantize(raw: list[tuple[int, float, float]], beats: list[float], downbeats:
         return []
     b = np.asarray(beats, dtype=float)
     grid, pre = _grid(b, raw[0][1], raw[-1][2])
+    if GROOVE_SHIFT:
+        # the band can sit slightly ahead of or behind the tracked beats; move the whole grid
+        # by the median offset of the note starts so borderline notes stop flipping a 16th
+        starts = np.array([n[1] for n in raw])
+        grid = grid + np.median(starts - grid[np.abs(starts[:, None] - grid).argmin(axis=1)])
     step = np.diff(grid, append=grid[-1] + (grid[-1] - grid[-2]))
     # grid index % 4: 0 = beat, 2 = 8th, 1/3 = 16th
     penalty = np.array([0.0, METER_PRIOR[1], METER_PRIOR[0], METER_PRIOR[1]])
@@ -215,3 +227,4 @@ def segment(job_dir: Path) -> list[Note]:
     notes = quantize(raw, beats.beats, beats.downbeats, beats.beats_per_bar)
     save_json(notes, job_dir / NOTES_JSON)
     return notes
+
