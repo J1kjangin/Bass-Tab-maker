@@ -35,3 +35,16 @@ def test_out_of_range_is_octave_shifted():
     assert [t.midi for t in tab] == [36, 58]
     positions(tab)
     assert [(t.tick, t.length) for t in tab] == [(0, 4), (4, 4)]
+
+
+def low_notes(midi, count, dur=0.4):
+    return [Note(midi=midi, start=i * 1.0, end=i * 1.0 + dur, tick=i * 4, length=4) for i in range(count)]
+
+
+def test_detect_tuning():
+    from bass_tab.stage5_frets import detect_tuning
+    assert detect_tuning(notes(28, 33, 38, 43)) == "standard"
+    assert detect_tuning(low_notes(26, 8)) == "drop-d"           # low D played for 3.2 s
+    assert detect_tuning(notes(33, 38) + low_notes(26, 2)) == "standard"   # 2 stray low notes
+    assert detect_tuning(notes(33, 38) + low_notes(26, 8, dur=0.1)) == "standard"  # 0.8 s total
+    assert detect_tuning([]) == "standard"

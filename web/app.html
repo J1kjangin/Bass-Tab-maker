@@ -38,6 +38,7 @@
     </label>
     <label>튜닝
       <select name="tuning" id="tuning">
+        <option value="auto">자동 판별</option>
         <option value="standard">표준 (E A D G)</option>
         <option value="drop-d">Drop D (D A D G)</option>
       </select>
@@ -87,7 +88,9 @@
 
   async function render(id) {
     const res = await (await fetch(`/api/jobs/${id}/result`)).json();
-    show(`완료: ${res.tab.title} · ${Math.round(res.tab.bpm)} BPM · 노트 ${res.tab.notes.length}개`);
+    const low = res.tab.tuning ? res.tab.tuning[3] : 28;
+    const tuning = low === 26 ? 'Drop D' : low === 28 ? '표준' : '튜닝 ' + low;
+    show(`완료: ${res.tab.title} · ${Math.round(res.tab.bpm)} BPM · ${tuning} · 노트 ${res.tab.notes.length}개`);
     if (!api) api = new alphaTab.AlphaTabApi($('alphaTab'), { display: { staveProfile: 'ScoreTab' } });
     api.tex(res.alphatex);
   }

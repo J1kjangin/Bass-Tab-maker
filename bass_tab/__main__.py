@@ -78,9 +78,13 @@ def run(source: str, job_dir: Path, sep_model: str, device: str, force: bool,
         on_stage("render", 98)
 
     meta, beats = load_meta(job_dir / META), load_beats(job_dir / BEATS_JSON)
+    notes = load_notes(job_dir / NOTES_JSON)
+    if tuning == "auto":
+        tuning = stage5_frets.detect_tuning(notes)
+        print(f"[tuning] {tuning}")
     open_midi = TUNINGS[tuning]
     tab = Tab(meta.title, beats.bpm, beats.beats_per_bar,
-              stage5_frets.assign(load_notes(job_dir / NOTES_JSON), open_midi), list(open_midi))
+              stage5_frets.assign(notes, open_midi), list(open_midi))
     save_json(tab, job_dir / TAB_JSON)
     tex = stage6_render.to_alphatex(tab)
     (job_dir / TAB_TEX).write_text(tex, encoding="utf-8")
@@ -98,7 +102,7 @@ def main() -> None:
     p.add_argument("--sep-model", default="htdemucs", help="Demucs model (htdemucs, htdemucs_6s)")
     p.add_argument("--device", default="auto", help="auto, cpu or cuda")
     p.add_argument("--force", action="store_true", help="redo stages even if outputs exist")
-    p.add_argument("--tuning", default="standard", choices=sorted(TUNINGS))
+    p.add_argument("--tuning", default="auto", choices=["auto", *sorted(TUNINGS)])
     a = p.parse_args()
     job_dir = ROOT / "jobs" / (a.job_id or job_id_for(a.source))
     job_dir.mkdir(parents=True, exist_ok=True)

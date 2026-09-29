@@ -12,11 +12,28 @@ TabNote.midi is the shifted pitch, so tuning[string - 1] + fret == TabNote.midi 
 """
 from __future__ import annotations
 
-from bass_tab.contracts import MAX_FRET, TUNINGS, Note, TabNote
+from bass_tab.contracts import MAX_FRET, TUNINGS, Note, TabNote  # noqa: F401  (TUNINGS re-used)
 
 FRET_WEIGHT = 2
 STRING_CHANGE = 1
 OPEN_BONUS = -2
+# Auto tuning: a lower tuning is only chosen when notes it alone can play really sound.
+# Reference songs: the Drop D one had 76 such notes / 16.9 s, the three standard ones 1-2 / 0.1 s.
+LOW_MIN_NOTES = 5
+LOW_MIN_SECONDS = 1.0
+
+
+def detect_tuning(notes: list[Note], tunings=TUNINGS) -> str:
+    """Pick the tuning name from what the bass actually plays: standard unless notes below its
+    lowest string sound long enough to be real. Only the lowest string differs between the
+    supported tunings, so this is a single threshold, not a search."""
+    best = "standard"
+    for name, tuning in sorted(tunings.items(), key=lambda kv: -min(kv[1])):
+        floor = min(tuning)
+        low = [n for n in notes if floor <= n.midi < min(tunings[best])]
+        if len(low) >= LOW_MIN_NOTES and sum(n.end - n.start for n in low) >= LOW_MIN_SECONDS:
+            best = name
+    return best
 
 
 def _in_range(midi: int, lowest: int, highest: int) -> int:

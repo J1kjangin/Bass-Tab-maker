@@ -9,7 +9,7 @@
 uv sync                                  # Python 3.12 venv (.venv)
 uv run pytest -q                         # 전체 테스트
 uv run python -m bass_tab <링크|파일>     # 전체 파이프라인 → jobs/{id}/tab.html
-uv run python -m bass_tab <링크> --tuning drop-d   # Drop D(DADG) 곡
+uv run python -m bass_tab <링크> --tuning drop-d   # 튜닝 고정(기본값은 auto 판별)
 ```
 
 결과가 있는 Stage는 건너뛴다(`--force`로 재실행). `tab.html`은 CDN을 쓰므로
@@ -97,7 +97,7 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 | Stage 4 | 피치 변화로만 분절 | + 베이스 트랙 온셋으로 분절 | 같은 음 반복 연주가 한 노트로 합쳐지는 결함 |
 | Stage 1 | htdemucs_6s 고정 | `model` 인자로 선택, 기본 `htdemucs` | 정답 4곡 비교에서 두 모델 차이가 노이즈 수준 |
 | Stage 2 | 옥타브 보정 | 사용 안 함 | 약간 낮게 친 E1을 E2로 잘못 올림 |
-| Stage 5 | EADG 고정 | `--tuning` (standard, drop-d) | Drop D 곡의 D1이 옥타브 이동됨 |
+| Stage 5 | EADG 고정 | `--tuning auto`(기본), standard, drop-d | Drop D 곡의 D1이 옥타브 이동됨 |
 
 ## 데이터 계약
 
@@ -116,6 +116,8 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 
 - 사용자에게 보여줄 실패(라이브 방송, 비공개 영상, 베이스 미검출 등)는 `PipelineError`를 던진다.
 - 현 번호는 AlphaTex 규칙을 따른다: 1=G(최고음) … 4=E 또는 D(최저음). 튜닝은 `Tab.tuning`.
+- 튜닝 자동 판별(`stage5_frets.detect_tuning`): E1(28) 미만 음이 5개 이상이고 합계 1초 이상 울리면
+  drop-d. 실측 – Drop D 곡 76개/16.9초, 표준 곡들 1~2개/0.1초. 정답 4곡 모두 정확히 판별.
 
 ## 병렬 개발 규칙 (서브에이전트용)
 

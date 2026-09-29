@@ -93,12 +93,12 @@ def page():
 
 
 @app.post("/api/jobs")
-async def create_job(url: str = Form(""), tuning: str = Form("standard"),
+async def create_job(url: str = Form(""), tuning: str = Form("auto"),
                      file: UploadFile | None = File(None)):
     url = url.strip()
     if bool(url) == bool(file and file.filename):
         raise HTTPException(400, "링크 또는 오디오 파일 중 하나만 보내 주세요")
-    if tuning not in TUNINGS:
+    if tuning != "auto" and tuning not in TUNINGS:
         raise HTTPException(400, f"지원하지 않는 튜닝입니다: {tuning}")
 
     if url:
