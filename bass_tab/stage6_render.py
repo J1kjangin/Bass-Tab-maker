@@ -20,6 +20,11 @@ _DURATIONS = [(16, "1", False), (12, "2", True), (8, "2", False), (6, "4", True)
 _NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
+def chord_root(name: str) -> str:
+    """"Am7" -> "A", "G#m7" -> "G#". The quality is dropped: the tab shows the root only."""
+    return name[:2] if len(name) > 1 and name[1] in "#b" else name[:1]
+
+
 def _note_name(midi: int) -> str:
     return f"{_NAMES[midi % 12]}{midi // 12 - 1}"
 
@@ -49,8 +54,12 @@ def to_alphatex(tab: Tab) -> str:
     n_bars = max(1, -(-total // bar))
     bars: list[list[str]] = [[] for _ in range(n_bars)]
 
-    # chord symbols: printed on the beat they start on, via the AlphaTex beat property {ch "X"}
-    pending = sorted(((c.tick, c.name) for c in tab.chords), key=lambda c: c[0])
+    # chord symbols: printed on the beat they start on, via the AlphaTex beat property {ch "X"}.
+    # Only the root is printed (A, not Am7), so neighbouring bars sharing a root become one label.
+    pending: list[tuple[int, str]] = []
+    for tick, name in sorted(((c.tick, chord_root(c.name)) for c in tab.chords)):
+        if not pending or pending[-1][1] != name:
+            pending.append((tick, name))
 
     def effects(start: int, size: int, dotted: bool) -> str:
         """One brace group per beat: alphaTex rejects a second `{...}` on the same beat."""

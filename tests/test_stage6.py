@@ -1,4 +1,4 @@
-from fractions import Fraction
+﻿from fractions import Fraction
 
 from bass_tab.contracts import Tab, TabNote
 from bass_tab.stage6_render import to_alphatex
@@ -50,6 +50,7 @@ def test_overlapping_notes_are_clipped():
 def test_chord_symbols_sit_on_the_beat_they_start():
     from bass_tab.contracts import Chord
     tab = Tab("T", 100.0, 4, [TabNote(28, 0, 4, 4, 0), TabNote(33, 8, 8, 3, 0)],
-              chords=[Chord("C", 0.0, 0), Chord("G", 1.0, 8)])
+              chords=[Chord("Cmaj", 0.0, 0), Chord("C7", 0.5, 4), Chord("G", 1.0, 8)])
     body = to_alphatex(tab).splitlines()[-1]
-    assert body == '0.4.4{ch "C"} r.4 0.3.2{ch "G"}'
+    assert body == '0.4.4{ch \"C\"} r.4 0.3.2{ch \"G\"}'   # C7 folded into the C before it
+
