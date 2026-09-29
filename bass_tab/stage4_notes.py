@@ -178,17 +178,17 @@ def _grid(beats: np.ndarray, t_min: float, t_max: float) -> tuple[np.ndarray, in
     return grid, pre
 
 
-def quantize(raw: list[tuple[int, float, float]], beats: list[float], downbeats: list[float],
-             beats_per_bar: int) -> list[Note]:
-    if not raw:
-        return []
+def tick_mapper(beats: list[float], downbeats: list[float], beats_per_bar: int,
+                starts: list[float], end: float):
+    """seconds -> 16th tick, tick 0 at the first downbeat. `starts` are the note starts the
+    grid is aligned to; chords reuse the same mapper so both land on the same grid."""
     b = np.asarray(beats, dtype=float)
-    grid, pre = _grid(b, raw[0][1], raw[-1][2])
+    grid, pre = _grid(b, starts[0], end)
     if GROOVE_SHIFT:
         # the band can sit slightly ahead of or behind the tracked beats; move the whole grid
         # by the median offset of the note starts so borderline notes stop flipping a 16th
-        starts = np.array([n[1] for n in raw])
-        grid = grid + np.median(starts - grid[np.abs(starts[:, None] - grid).argmin(axis=1)])
+        s = np.asarray(starts, dtype=float)
+        grid = grid + np.median(s - grid[np.abs(s[:, None] - grid).argmin(axis=1)])
     step = np.diff(grid, append=grid[-1] + (grid[-1] - grid[-2]))
     # grid index % 4: 0 = beat, 2 = 8th, 1/3 = 16th
     penalty = np.array([0.0, METER_PRIOR[1], METER_PRIOR[0], METER_PRIOR[1]])
@@ -203,14 +203,22 @@ def quantize(raw: list[tuple[int, float, float]], beats: list[float], downbeats:
     first_db = downbeats[0] if downbeats else beats[0]
     origin = (pre + int(np.argmin(np.abs(b - first_db)))) * TICKS_PER_BEAT
     bar = beats_per_bar * TICKS_PER_BEAT
-    first = snap(raw[0][1])
+    first = snap(starts[0])
     while origin > first:
         origin -= bar
+    return lambda t: snap(t) - origin
+
+
+def quantize(raw: list[tuple[int, float, float]], beats: list[float], downbeats: list[float],
+             beats_per_bar: int) -> list[Note]:
+    if not raw:
+        return []
+    to_tick = tick_mapper(beats, downbeats, beats_per_bar, [n[1] for n in raw], raw[-1][2])
 
     by_tick: dict[int, Note] = {}
     for midi, start, end in raw:
-        s, e = snap(start), snap(end)
-        n = Note(midi=midi, start=start, end=end, tick=s - origin, length=max(1, e - s))
+        s, e = to_tick(start), to_tick(end)
+        n = Note(midi=midi, start=start, end=end, tick=s, length=max(1, e - s))
         old = by_tick.get(n.tick)
         if old is None or (n.end - n.start) > (old.end - old.start):
             by_tick[n.tick] = n  # two notes on one 16th: keep the longer one

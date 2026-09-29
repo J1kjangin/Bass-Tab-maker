@@ -14,10 +14,11 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import (stage0_input, stage1_separate, stage2_pitch, stage3_beats, stage4_notes,
+from . import (chords, stage0_input, stage1_separate, stage2_pitch, stage3_beats, stage4_notes,
                stage5_frets, stage6_render)
-from .contracts import (BASS_WAV, BEATS_JSON, META, NOTES_JSON, PITCH_NPZ, TAB_JSON, TAB_TEX,
-                        TUNINGS, PipelineError, Tab, load_beats, load_meta, load_notes, save_json)
+from .contracts import (BASS_WAV, BEATS_JSON, CHORDS_JSON, META, NOTES_JSON, PITCH_NPZ, TAB_JSON,
+                        TAB_TEX, TUNINGS, PipelineError, Tab, load_beats, load_chords, load_meta,
+                        load_notes, save_json)
 
 ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "web" / "index.html"
@@ -63,7 +64,8 @@ def run(source: str, job_dir: Path, sep_model: str, device: str, force: bool,
         ("separation", 2, BASS_WAV, lambda: stage1_separate.separate(job_dir, sep_model, device)),
         ("pitch", 32, PITCH_NPZ, lambda: stage2_pitch.track(job_dir, device)),
         ("beats", 92, BEATS_JSON, lambda: stage3_beats.track(job_dir, device)),
-        ("notes", 97, NOTES_JSON, lambda: stage4_notes.segment(job_dir)),
+        ("notes", 95, NOTES_JSON, lambda: stage4_notes.segment(job_dir)),
+        ("chords", 97, CHORDS_JSON, lambda: chords.detect(job_dir)),
     ]
     for name, pct, out, fn in steps:
         if on_stage:
@@ -83,13 +85,22 @@ def run(source: str, job_dir: Path, sep_model: str, device: str, force: bool,
         tuning = stage5_frets.detect_tuning(notes)
         print(f"[tuning] {tuning}")
     open_midi = TUNINGS[tuning]
+    found = load_chords(job_dir / CHORDS_JSON)
+    if notes and found:  # put the chord symbols on the same 16th grid as the notes
+        to_tick = stage4_notes.tick_mapper(beats.beats, beats.downbeats, beats.beats_per_bar,
+                                           [n.start for n in notes], notes[-1].end)
+        for c in found:
+            c.tick = to_tick(c.start)
+        # nothing before the bass comes in: those bars are intro noise, not chords
+        found = [c for c in found if c.tick >= 0 and c.start >= notes[0].start - 1.0]
     tab = Tab(meta.title, beats.bpm, beats.beats_per_bar,
-              stage5_frets.assign(notes, open_midi), list(open_midi))
+              stage5_frets.assign(notes, open_midi), list(open_midi), found)
     save_json(tab, job_dir / TAB_JSON)
     tex = stage6_render.to_alphatex(tab)
     (job_dir / TAB_TEX).write_text(tex, encoding="utf-8")
     write_viewer(tex, job_dir / "tab.html")
-    print(f"[stage 5-6] {len(tab.notes)} notes, {beats.bpm:.1f} BPM, {beats.beats_per_bar}/4")
+    print(f"[stage 5-6] {len(tab.notes)} notes, {len(tab.chords)} chords, "
+          f"{beats.bpm:.1f} BPM, {beats.beats_per_bar}/4")
     for w in meta.warnings:
         print("warning:", w)
     return job_dir / "tab.html"

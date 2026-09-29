@@ -19,6 +19,7 @@ BASS_WAV = "bass.wav"     # Stage 1 -> 44.1 kHz, stereo or mono, isolated bass
 PITCH_NPZ = "pitch.npz"   # Stage 2 -> Pitch
 BEATS_JSON = "beats.json" # Stage 3 -> Beats
 NOTES_JSON = "notes.json" # Stage 4 -> list[Note]
+CHORDS_JSON = "chords.json"  # chord detection -> list[Chord]
 TAB_JSON = "tab.json"     # Stage 5 -> Tab
 TAB_TEX = "tab.alphatex"  # Stage 6 -> AlphaTex text
 
@@ -82,6 +83,14 @@ class Note:
 
 # ---- Stage 5 --------------------------------------------------------------
 @dataclass
+class Chord:
+    """A chord symbol printed above the tab. `tick` is filled when the tab is built."""
+    name: str
+    start: float          # seconds
+    tick: int = 0
+
+
+@dataclass
 class TabNote:
     midi: int
     tick: int
@@ -97,6 +106,7 @@ class Tab:
     beats_per_bar: int
     notes: list[TabNote]
     tuning: list[int] = field(default_factory=lambda: list(TUNINGS["standard"]))
+    chords: list[Chord] = field(default_factory=list)
 
 
 # ---- JSON helpers -----------------------------------------------------------
@@ -120,7 +130,12 @@ def load_notes(path: Path) -> list[Note]:
     return [Note(**d) for d in json.loads(Path(path).read_text(encoding="utf-8"))]
 
 
+def load_chords(path: Path) -> list[Chord]:
+    return [Chord(**d) for d in json.loads(Path(path).read_text(encoding="utf-8"))]
+
+
 def load_tab(path: Path) -> Tab:
     d = json.loads(Path(path).read_text(encoding="utf-8"))
     d["notes"] = [TabNote(**n) for n in d["notes"]]
+    d["chords"] = [Chord(**c) for c in d.get("chords", [])]
     return Tab(**d)

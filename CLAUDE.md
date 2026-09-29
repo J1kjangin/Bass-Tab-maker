@@ -111,6 +111,7 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 | `stage3_beats.py` | `track(job_dir, device="cpu") -> Beats` | `mix.wav` | `beats.json` |
 | `stage4_notes.py` | `segment(job_dir) -> list[Note]` | `pitch.npz`, `beats.json`, `bass.wav` | `notes.json` |
 | `stage5_frets.py` | `assign(notes, tuning=TUNINGS["standard"]) -> list[TabNote]` | 순수 함수 | — |
+| `chords.py` | `detect(job_dir) -> list[Chord]` | `mix.wav`, `beats.json` | `chords.json` |
 | `stage6_render.py` | `to_alphatex(tab: Tab) -> str` | 순수 함수 | — |
 | `web/index.html` | AlphaTab 뷰어 | `tab.alphatex` | 브라우저 렌더링 |
 
@@ -118,6 +119,17 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 - 현 번호는 AlphaTex 규칙을 따른다: 1=G(최고음) … 4=E 또는 D(최저음). 튜닝은 `Tab.tuning`.
 - 튜닝 자동 판별(`stage5_frets.detect_tuning`): E1(28) 미만 음이 5개 이상이고 합계 1초 이상 울리면
   drop-d. 실측 – Drop D 곡 76개/16.9초, 표준 곡들 1~2개/0.1초. 정답 4곡 모두 정확히 판별.
+
+## 코드(화음) 표기
+
+- `chords.py`: 원본 믹스 → HPSS 하모닉 → chroma_cqt → 마디 단위 평균 → 코드 템플릿 최대 유사도.
+  같은 코드가 이어지도록 직전 코드에 `SELF_BONUS`를 주고, 점수가 `MIN_SCORE` 미만이면 표기하지 않는다.
+- 코드 사전은 maj, m, 7, M7, m7 다섯 가지. **sus4와 dim은 제외** – 애매한 마디를 흡수해 정답을 가렸다
+  (찬송가 정답 F#m7 → Bsus4). 제외 후 그 곡 인트로의 근음은 7/7, 코드 이름 전체는 5/7.
+- 한계: m7b5·dim·sus·분수코드(Eb/G) 미지원 → 근음은 맞아도 성질이 단순화된다(DAY6 Am7b5 → AM7).
+- AlphaTex는 한 박에 중괄호 묶음을 **하나만** 허용한다. 점음표와 코드가 겹치면 `4.2.2{d ch "B"}`처럼
+  한 묶음으로 합쳐야 하며, 따로 쓰면 파싱 오류가 난다(브라우저에서 확인).
+- 비용: 6분 34초 곡 25초, 3분 곡 8~14초.
 
 ## 병렬 개발 규칙 (서브에이전트용)
 

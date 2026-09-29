@@ -45,3 +45,11 @@ def test_bars_are_full_in_3_4():
 def test_overlapping_notes_are_clipped():
     notes = [TabNote(33, 0, 8, 3, 0), TabNote(35, 4, 4, 3, 2)]
     assert to_alphatex(Tab("T", 100.0, 4, notes)).endswith("0.3.4 2.3.4 r.2\n")
+
+
+def test_chord_symbols_sit_on_the_beat_they_start():
+    from bass_tab.contracts import Chord
+    tab = Tab("T", 100.0, 4, [TabNote(28, 0, 4, 4, 0), TabNote(33, 8, 8, 3, 0)],
+              chords=[Chord("C", 0.0, 0), Chord("G", 1.0, 8)])
+    body = to_alphatex(tab).splitlines()[-1]
+    assert body == '0.4.4{ch "C"} r.4 0.3.2{ch "G"}'

@@ -13,7 +13,8 @@ from bass_tab.contracts import TICKS_PER_BEAT, Tab
 
 # 16th-note ticks -> AlphaTex duration (1 whole .. 16 sixteenth), dotted where needed.
 # ponytail: greedy largest-first split, ignores beat grouping; add beat-aligned split if readability matters.
-_DURATIONS = [(16, "1"), (12, "2{d}"), (8, "2"), (6, "4{d}"), (4, "4"), (3, "8{d}"), (2, "8"), (1, "16")]
+_DURATIONS = [(16, "1", False), (12, "2", True), (8, "2", False), (6, "4", True),
+              (4, "4", False), (3, "8", True), (2, "8", False), (1, "16", False)]
 
 
 _NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -23,11 +24,12 @@ def _note_name(midi: int) -> str:
     return f"{_NAMES[midi % 12]}{midi // 12 - 1}"
 
 
-def _split(ticks: int) -> list[str]:
+def _split(ticks: int) -> list[tuple[int, str, bool]]:
+    """-> [(length in ticks, AlphaTex duration, dotted)] covering `ticks`."""
     out = []
-    for size, dur in _DURATIONS:
+    for size, dur, dotted in _DURATIONS:
         while ticks >= size:
-            out.append(dur)
+            out.append((size, dur, dotted))
             ticks -= size
     return out
 
@@ -47,16 +49,28 @@ def to_alphatex(tab: Tab) -> str:
     n_bars = max(1, -(-total // bar))
     bars: list[list[str]] = [[] for _ in range(n_bars)]
 
+    # chord symbols: printed on the beat they start on, via the AlphaTex beat property {ch "X"}
+    pending = sorted(((c.tick, c.name) for c in tab.chords), key=lambda c: c[0])
+
+    def effects(start: int, size: int, dotted: bool) -> str:
+        """One brace group per beat: alphaTex rejects a second `{...}` on the same beat."""
+        parts = ["d"] if dotted else []
+        while pending and pending[0][0] < start:
+            pending.pop(0)               # its beat has already gone by
+        if pending and start <= pending[0][0] < start + size:
+            parts.append('ch "%s"' % pending.pop(0)[1].replace('"', ""))
+        return "{%s}" % " ".join(parts) if parts else ""
+
     def emit(start: int, end: int, first: str, rest: str) -> None:
         # place [start, end) splitting at bar lines; first piece uses `first`, the rest `rest`
         head = first
         while start < end:
             b = start // bar
             stop = min(end, (b + 1) * bar)
-            for dur in _split(stop - start):
-                bars[b].append(f"{head}.{dur}")
+            for size, dur, dotted in _split(stop - start):
+                bars[b].append(f"{head}.{dur}{effects(start, size, dotted)}")
                 head = rest
-            start = stop
+                start += size
 
     cursor = 0
     for start, end, fret, string in events:
