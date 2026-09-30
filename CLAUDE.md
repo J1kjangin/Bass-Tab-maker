@@ -115,6 +115,7 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 | `stage5_frets.py` | `assign(notes, tuning=TUNINGS["standard"]) -> list[TabNote]` | 순수 함수 | — |
 | `chords.py` | `detect(job_dir) -> list[Chord]` | `mix.wav`, `beats.json` | `chords.json` |
 | `stage6_render.py` | `to_alphatex(tab: Tab) -> str` | 순수 함수 | — |
+| `musicxml.py` | `to_musicxml(tab: Tab) -> str` | 순수 함수 | `tab.musicxml` |
 | `web/index.html` | AlphaTab 뷰어 | `tab.alphatex` | 브라우저 렌더링 |
 
 - 사용자에게 보여줄 실패(라이브 방송, 비공개 영상, 베이스 미검출 등)는 `PipelineError`를 던진다.
@@ -135,6 +136,21 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 - AlphaTex는 한 박에 중괄호 묶음을 **하나만** 허용한다. 점음표와 코드가 겹치면 `4.2.2{d ch "B"}`처럼
   한 묶음으로 합쳐야 하며, 따로 쓰면 파싱 오류가 난다(브라우저에서 확인).
 - 비용: 6분 34초 곡 25초, 3분 곡 8~14초.
+
+## 내보내기 (GP · MusicXML)
+
+- **MusicXML**은 파이썬에서 직접 만든다(`musicxml.py`). AlphaTab은 MusicXML을 읽기만 하고 쓰지 못한다.
+  - score-partwise 4.0, TAB 보표 1개(`<clef><sign>TAB`), `staff-details`에 줄 수와 튜닝,
+    음표마다 `technical/string`+`fret`, 마디 넘김은 tie, 코드는 `harmony`(근음만, `kind text=""`).
+  - `divisions=4`(4분음표당) = 16분음표 1틱. MusicXML의 줄 번호는 우리와 같은 규칙(1=최고음).
+    AlphaTab은 내부적으로 최저음을 1로 세므로, 되읽으면 번호가 뒤집혀 보이지만 음높이·프렛은 같다.
+  - 검증(찬송가 곡): 205마디 전부 길이 정확, 음표 1102개 = 노트 1031 + 타이 조각 71, 코드 162개.
+    AlphaTab으로 되읽어 제목·마디·음표·튜닝 일치 확인.
+- **GP(.gp)**는 브라우저에서 AlphaTab의 `alphaTab.exporter.Gp7Exporter`로 만든다(MPL-2.0, 이미 사용 중).
+  파이썬용 GP 작성 라이브러리는 라이선스가 걸려 쓰지 않았다. 내보낸 40KB 파일이 zip 시그니처(PK)이고,
+  다시 읽었을 때 205마디·1102음표·튜닝이 일치하는 것을 확인했다.
+- 웹 화면: 완료 시 "Guitar Pro (.gp) 내려받기" 버튼과 "MusicXML 내려받기" 링크가 나타난다.
+  서버 경로는 `GET /api/jobs/{id}/musicxml`.
 
 ## 병렬 개발 규칙 (서브에이전트용)
 

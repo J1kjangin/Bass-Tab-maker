@@ -24,7 +24,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from . import __main__ as cli
-from .contracts import TAB_JSON, TAB_TEX, TUNINGS, PipelineError
+from .contracts import TAB_JSON, TAB_TEX, TAB_XML, TUNINGS, PipelineError
 
 JOBS = cli.ROOT / "jobs"
 APP_PAGE = cli.ROOT / "web" / "app.html"
@@ -145,3 +145,15 @@ def job_result(job_id: str):
     d = JOBS / job_id
     return {"alphatex": (d / TAB_TEX).read_text(encoding="utf-8"),
             "tab": json.loads((d / TAB_JSON).read_text(encoding="utf-8"))}
+
+
+@app.get("/api/jobs/{job_id}/musicxml")
+def job_musicxml(job_id: str):
+    """MusicXML download (Guitar Pro export is done in the browser by alphaTab)."""
+    if _read(job_id)["status"] != "done":
+        raise HTTPException(409, "아직 완료되지 않았습니다")
+    path = JOBS / job_id / TAB_XML
+    if not path.exists():
+        raise HTTPException(404, "MusicXML 파일이 없습니다. 다시 실행해 주세요")
+    return FileResponse(path, filename=f"{job_id}.musicxml",
+                        media_type="application/vnd.recordare.musicxml+xml")

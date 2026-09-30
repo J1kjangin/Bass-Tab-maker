@@ -19,6 +19,7 @@ def fake_run(source, job_dir, sep_model, device, force, tuning, on_stage=None):
         on_stage(stage, pct)
     save_json(Tab("T", 120.0, 4, []), job_dir / "tab.json")
     (job_dir / "tab.alphatex").write_text("\\title \"T\"\nr.1\n", encoding="utf-8")
+    (job_dir / "tab.musicxml").write_text("<score-partwise/>", encoding="utf-8")
 
 
 @pytest.fixture
@@ -45,6 +46,9 @@ def test_url_job_runs_to_result(client):
     assert wait(client, "abc123")["status"] == "done"
     res = client.get("/api/jobs/abc123/result").json()
     assert res["alphatex"].startswith("\\title") and res["tab"]["bpm"] == 120.0
+    xml = client.get("/api/jobs/abc123/musicxml")
+    assert xml.status_code == 200 and xml.text == "<score-partwise/>"
+    assert "abc123.musicxml" in xml.headers["content-disposition"]
 
 
 def test_upload_job_and_pipeline_error(client):
@@ -64,3 +68,4 @@ def test_input_validation(client):
     assert client.post("/api/jobs", files={"file": ("x.exe", b"MZ", "application/octet-stream")}).status_code == 400
     assert client.get("/api/jobs/..%2F..%2Fetc").status_code == 404
     assert client.get("/api/jobs/nope").status_code == 404
+    assert client.get("/api/jobs/nope/musicxml").status_code == 404

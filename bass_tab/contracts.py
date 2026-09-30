@@ -22,6 +22,7 @@ NOTES_JSON = "notes.json" # Stage 4 -> list[Note]
 CHORDS_JSON = "chords.json"  # chord detection -> list[Chord]
 TAB_JSON = "tab.json"     # Stage 5 -> Tab
 TAB_TEX = "tab.alphatex"  # Stage 6 -> AlphaTex text
+TAB_XML = "tab.musicxml"  # Stage 6 -> MusicXML 4.0 (score-partwise)
 
 SR = 44100
 PITCH_HOP_S = 0.01        # Stage 2 frame step (10 ms)

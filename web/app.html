@@ -24,6 +24,8 @@
   .err { color: var(--err); }
   .hint { color: var(--muted); font-size: .85rem; }
   #alphaTab { background: #fff; border-radius: 6px; margin-top: 8px; }
+  #downloads { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+  #downloads a { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -50,6 +52,10 @@
 
 <div id="status" role="status" aria-live="polite"></div>
 <progress id="bar" max="100" value="0" hidden></progress>
+<div id="downloads" hidden>
+  <button id="gp" type="button">Guitar Pro (.gp) 내려받기</button>
+  <a id="xml" download>MusicXML 내려받기</a>
+</div>
 <div id="alphaTab"></div>
 
 <script>
@@ -93,6 +99,19 @@
     show(`완료: ${res.tab.title} · ${Math.round(res.tab.bpm)} BPM · ${tuning} · 노트 ${res.tab.notes.length}개`);
     if (!api) api = new alphaTab.AlphaTabApi($('alphaTab'), { display: { staveProfile: 'ScoreTab' } });
     api.tex(res.alphatex);
+    const name = (res.tab.title || 'bass-tab').replace(/[^\w가-힣.-]+/g, '_').slice(0, 60);
+    $('xml').href = `/api/jobs/${id}/musicxml`;
+    $('xml').download = name + '.musicxml';
+    $('gp').onclick = () => save(new alphaTab.exporter.Gp7Exporter().export(api.score, api.settings),
+                                 name + '.gp', 'application/gp');
+    $('downloads').hidden = false;
+  }
+
+  function save(bytes, filename, type) {
+    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+    a.click();
+    URL.revokeObjectURL(url);
   }
 </script>
 </body>
