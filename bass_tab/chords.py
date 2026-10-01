@@ -1,7 +1,7 @@
 """Chord symbols above the tab: chroma of the original mix matched against chord templates.
 
-mix.wav + beats.json -> chords.json. Bar-synchronous: one label per bar, then runs of the same
-label are merged, so the tab shows a symbol only where the chord changes.
+mix.wav + beats.json -> chords.json. One label per SEGMENT_BEATS beats (half a 4/4 bar), then
+runs of the same label are merged, so the tab shows a symbol only where the chord changes.
 """
 from __future__ import annotations
 
@@ -15,6 +15,10 @@ from .contracts import BEATS_JSON, CHORDS_JSON, MIX_WAV, Chord, load_beats, save
 SR = 22050
 HOP = 512
 HARMONIC_MARGIN = 3.0     # librosa HPSS margin: keep the pitched part, drop drums
+# Beats per analysed segment. 2 (half a 4/4 bar) beat a whole bar on the 19 reference bars,
+# 13/19 -> 18/19: songs change chord mid-bar, and a bar-long window also smears across a wrong
+# bar phase. 1 beat (17/19) and 3 beats (13/19) are both worse.
+SEGMENT_BEATS = 2
 SELF_BONUS = 0.06         # score added for keeping the previous bar's chord (chords are held)
 MIN_SCORE = 0.55          # below this the bar is left unlabelled (intro noise, silence)
 
@@ -42,15 +46,15 @@ def _templates() -> tuple[np.ndarray, list[str]]:
 TEMPLATES, LABELS = _templates()
 
 
-def bar_chroma(mix: Path, beats: list[float], beats_per_bar: int) -> tuple[np.ndarray, list[float]]:
-    """Mean chroma per bar (unit length) and each bar's start time."""
+def bar_chroma(mix: Path, beats: list[float], beats_per_segment: int) -> tuple[np.ndarray, list[float]]:
+    """Mean chroma per segment (unit length) and each segment's start time."""
     y, _ = librosa.load(mix, sr=SR, mono=True)
     chroma = librosa.feature.chroma_cqt(y=librosa.effects.harmonic(y, margin=HARMONIC_MARGIN),
                                         sr=SR, hop_length=HOP)
     frames = librosa.time_to_frames(np.asarray(beats), sr=SR, hop_length=HOP)
     vecs, starts = [], []
-    for i in range(0, len(frames) - beats_per_bar, beats_per_bar):
-        a, b = int(frames[i]), int(frames[i + beats_per_bar])
+    for i in range(0, len(frames) - beats_per_segment, beats_per_segment):
+        a, b = int(frames[i]), int(frames[i + beats_per_segment])
         if b <= a:
             continue
         v = chroma[:, a:b].mean(axis=1)
@@ -60,7 +64,7 @@ def bar_chroma(mix: Path, beats: list[float], beats_per_bar: int) -> tuple[np.nd
 
 
 def label_bars(vecs: np.ndarray) -> list[str | None]:
-    """Best template per bar, with a bonus for repeating the previous bar's chord."""
+    """Best template per segment, with a bonus for repeating the previous segment's chord."""
     out: list[str | None] = []
     prev = None
     for v in vecs:
@@ -79,7 +83,7 @@ def label_bars(vecs: np.ndarray) -> list[str | None]:
 def detect(job_dir: Path) -> list[Chord]:
     job_dir = Path(job_dir)
     beats = load_beats(job_dir / BEATS_JSON)
-    vecs, starts = bar_chroma(job_dir / MIX_WAV, beats.beats, beats.beats_per_bar)
+    vecs, starts = bar_chroma(job_dir / MIX_WAV, beats.beats, SEGMENT_BEATS)
     chords: list[Chord] = []
     for name, start in zip(label_bars(vecs), starts):
         if name and (not chords or chords[-1].name != name):
