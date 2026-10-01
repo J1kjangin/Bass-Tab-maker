@@ -94,3 +94,15 @@ def test_grid_shift_keeps_a_slightly_late_band_on_the_beat():
     lag = 0.05                                          # 0.4 of a 16th: within half a tick
     late = [(33, 1.0 + lag, 1.4), (35, 1.5 + lag, 1.9), (36, 2.0 + lag, 2.4)]
     assert [n.tick for n in quantize(late, beats, [1.0, 3.0], 4)] == [0, 4, 8]
+
+
+def test_loose_mode_keeps_a_strong_same_pitch_onset():
+    # same pitch throughout, flat level: strict mode hears one note, loose mode hears the
+    # second onset because it peaks as strongly as the song's other onsets
+    p = _frames([(33, 80)])
+    flat = np.full(80, 0.1)
+    onsets = np.array([0, 40])
+    strength = np.array([5.0, 5.0])
+    assert len(segment_frames(p, onsets, flat, tick_s=0.115)) == 1
+    loose = segment_frames(p, onsets, flat, 0.115, strength, loose_repeats=True)
+    assert [n[0] for n in loose] == [33, 33]

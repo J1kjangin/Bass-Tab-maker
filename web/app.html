@@ -38,6 +38,12 @@
     <label>또는 오디오 파일
       <input type="file" name="file" id="file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac,.webm,.mp4">
     </label>
+    <label>같은 음 반복
+      <select name="repeats" id="repeats">
+        <option value="strict">기본</option>
+        <option value="loose">민감하게 (여린 발라드)</option>
+      </select>
+    </label>
     <label>튜닝
       <select name="tuning" id="tuning">
         <option value="auto">자동 판별</option>
@@ -72,6 +78,7 @@
     if ($('url').value.trim()) body.append('url', $('url').value.trim());
     if ($('file').files[0]) body.append('file', $('file').files[0]);
     body.append('tuning', $('tuning').value);
+    body.append('repeats', $('repeats').value);
     $('go').disabled = true;
     try {
       const r = await fetch('/api/jobs', { method: 'POST', body });

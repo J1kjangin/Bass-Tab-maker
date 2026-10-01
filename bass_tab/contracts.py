@@ -19,6 +19,7 @@ BASS_WAV = "bass.wav"     # Stage 1 -> 44.1 kHz, stereo or mono, isolated bass
 PITCH_NPZ = "pitch.npz"   # Stage 2 -> Pitch
 BEATS_JSON = "beats.json" # Stage 3 -> Beats
 NOTES_JSON = "notes.json" # Stage 4 -> list[Note]
+NOTES_LOOSE_JSON = "notes_loose.json"  # Stage 4 with --repeats loose (cached separately)
 CHORDS_JSON = "chords.json"  # chord detection -> list[Chord]
 TAB_JSON = "tab.json"     # Stage 5 -> Tab
 TAB_TEX = "tab.alphatex"  # Stage 6 -> AlphaTex text

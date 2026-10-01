@@ -11,8 +11,8 @@ from bass_tab.contracts import PipelineError, Tab, save_json
 SOURCES = []
 
 
-def fake_run(source, job_dir, sep_model, device, force, tuning, on_stage=None):
-    SOURCES.append(source)
+def fake_run(source, job_dir, sep_model, device, force, tuning, on_stage=None, repeats="strict"):
+    SOURCES.append((source, repeats))
     if "fail" in source:
         raise PipelineError("라이브 방송은 지원하지 않습니다")
     for stage, pct in [("input", 0), ("pitch", 32), ("render", 98)]:
@@ -41,9 +41,11 @@ def wait(client, job_id):
 
 
 def test_url_job_runs_to_result(client):
-    r = client.post("/api/jobs", data={"url": "https://youtu.be/abc123", "tuning": "drop-d"})
+    r = client.post("/api/jobs", data={"url": "https://youtu.be/abc123", "tuning": "drop-d",
+                                       "repeats": "loose"})
     assert r.status_code == 200 and r.json()["job_id"] == "abc123"
     assert wait(client, "abc123")["status"] == "done"
+    assert SOURCES[-1][1] == "loose"          # the form option reaches the pipeline
     res = client.get("/api/jobs/abc123/result").json()
     assert res["alphatex"].startswith("\\title") and res["tab"]["bpm"] == 120.0
     xml = client.get("/api/jobs/abc123/musicxml")
@@ -54,7 +56,7 @@ def test_url_job_runs_to_result(client):
 def test_upload_job_and_pipeline_error(client):
     r = client.post("/api/jobs", files={"file": ("../my song.mp3", b"ID3fake", "audio/mpeg")})
     assert wait(client, r.json()["job_id"])["status"] == "done"
-    src = Path(SOURCES[-1])
+    src = Path(SOURCES[-1][0])
     assert src.stem == "my_song" and src.parent.name == "upload"   # title source, no traversal
     r = client.post("/api/jobs", data={"url": "https://x.test/fail"})
     s = wait(client, r.json()["job_id"])

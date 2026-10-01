@@ -10,6 +10,7 @@ uv sync                                  # Python 3.12 venv (.venv)
 uv run pytest -q                         # 전체 테스트
 uv run python -m bass_tab <링크|파일>     # 전체 파이프라인 → jobs/{id}/tab.html
 uv run python -m bass_tab <링크> --tuning drop-d   # 튜닝 고정(기본값은 auto 판별)
+uv run python -m bass_tab <링크> --repeats loose   # 같은 음 반복에 민감하게(여린 발라드용)
 ```
 
 결과가 있는 Stage는 건너뛴다(`--force`로 재실행). `tab.html`은 CDN을 쓰므로
@@ -111,6 +112,16 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
     없는 음이 6→10개로 늘고 조정 4곡이 함께 내려간다.
   - 이 문제를 더 밀려면 스펙트럼 플럭스가 아니라 **학습된 온셋 검출기**가 필요하다(새 의존성과
     라이선스 검토 필요). 현재 특징만으로는 한계다.
+- 다만 기각한 시도 중 **곡 내 온셋 강도 상위 90% 기준**은 느린 곡에서 분명히 이득이라 `--repeats loose`
+  옵션으로 남겼다(기본값은 strict). 실측 비교:
+
+| 설정 | 조정 4곡 합산 | 밤양갱(검증) | QWER(검증) |
+|---|---|---|---|
+| strict(기본) | **0.889** | 20/22, 없는 음 6 | 10/16 |
+| loose | 0.882 (Drop D 곡만 0.89→0.86) | **22/22**, 없는 음 8 | 10/16 (변화 없음) |
+
+  - 두 모드는 `notes.json` / `notes_loose.json`으로 **따로 캐시**한다. 옵션만 바꾸면 Stage 4(1~3초)만
+    다시 돌고 분리·피치는 재사용한다. 웹 화면에도 "같은 음 반복" 선택이 있다.
 - 화면 타브를 손으로 옮길 때는 **타브 4줄의 y좌표를 측정해 안내선을 그린 뒤** 읽는다. 눈대중으로 읽어
   한 줄 어긋난 적이 있다(밤양갱 22마디: E줄 7·8을 A줄로 읽음 → 실제 음원 스펙트럼과 대조해 발견).
 - 정렬 구간이 영상의 악보 전환 시점과 맞는지로 검증한다(밤양갱 38.4초, QWER 38.1초 = 해당 마디 시작).
@@ -136,7 +147,7 @@ uv run python tools/eval_reference.py jobs/awBbD1fxwio tools/reference/awBbD1fxw
 | `stage1_separate.py` | `separate(job_dir, model="htdemucs", device="cpu") -> Path` | `mix.wav` | `bass.wav` |
 | `stage2_pitch.py` | `track(job_dir, device="cpu") -> Pitch` | `bass.wav` | `pitch.npz` |
 | `stage3_beats.py` | `track(job_dir, device="cpu") -> Beats` | `mix.wav` | `beats.json` |
-| `stage4_notes.py` | `segment(job_dir) -> list[Note]` | `pitch.npz`, `beats.json`, `bass.wav` | `notes.json` |
+| `stage4_notes.py` | `segment(job_dir, loose_repeats=False) -> list[Note]` | `pitch.npz`, `beats.json`, `bass.wav` | `notes.json` 또는 `notes_loose.json` |
 | `stage5_frets.py` | `assign(notes, tuning=TUNINGS["standard"]) -> list[TabNote]` | 순수 함수 | — |
 | `chords.py` | `detect(job_dir) -> list[Chord]` | `mix.wav`, `beats.json` | `chords.json` |
 | `stage6_render.py` | `to_alphatex(tab: Tab) -> str` | 순수 함수 | — |

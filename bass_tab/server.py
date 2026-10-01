@@ -56,11 +56,12 @@ def _read(job_id: str) -> dict:
 def _worker() -> None:
     device = cli.pick_device("auto")
     while (item := _queue.get()) is not None:  # None = server shutting down
-        job_id, source, tuning = item
+        job_id, source, tuning, repeats = item
         _write(job_id, status="processing")
         try:
             cli.run(source, JOBS / job_id, "htdemucs", device, False, tuning,
-                    on_stage=lambda stage, pct: _write(job_id, stage=stage, progress=pct))
+                    on_stage=lambda stage, pct: _write(job_id, stage=stage, progress=pct),
+                    repeats=repeats)
             _write(job_id, status="done", stage="done", progress=100)
         except PipelineError as e:
             _write(job_id, status="failed", error=str(e))
@@ -94,10 +95,12 @@ def page():
 
 @app.post("/api/jobs")
 async def create_job(url: str = Form(""), tuning: str = Form("auto"),
-                     file: UploadFile | None = File(None)):
+                     repeats: str = Form("strict"), file: UploadFile | None = File(None)):
     url = url.strip()
     if bool(url) == bool(file and file.filename):
         raise HTTPException(400, "링크 또는 오디오 파일 중 하나만 보내 주세요")
+    if repeats not in ("strict", "loose"):
+        raise HTTPException(400, f"지원하지 않는 반복 음 설정입니다: {repeats}")
     if tuning != "auto" and tuning not in TUNINGS:
         raise HTTPException(400, f"지원하지 않는 튜닝입니다: {tuning}")
 
@@ -128,8 +131,9 @@ async def create_job(url: str = Form(""), tuning: str = Form("auto"),
                 out.write(chunk)
         source = str(dest)
 
-    status = _write(job_id, status="queued", stage="queued", progress=0, error=None, tuning=tuning)
-    _queue.put((job_id, source, tuning))
+    status = _write(job_id, status="queued", stage="queued", progress=0, error=None,
+                    tuning=tuning, repeats=repeats)
+    _queue.put((job_id, source, tuning, repeats))
     return {"job_id": job_id, **status}
 
 

@@ -16,9 +16,9 @@ from urllib.parse import parse_qs, urlparse
 
 from . import (chords, musicxml, stage0_input, stage1_separate, stage2_pitch, stage3_beats,
                stage4_notes, stage5_frets, stage6_render)
-from .contracts import (BASS_WAV, BEATS_JSON, CHORDS_JSON, META, NOTES_JSON, PITCH_NPZ, TAB_JSON,
-                        TAB_TEX, TAB_XML, TUNINGS, PipelineError, Tab, load_beats, load_chords,
-                        load_meta, load_notes, save_json)
+from .contracts import (BASS_WAV, BEATS_JSON, CHORDS_JSON, META, NOTES_JSON, NOTES_LOOSE_JSON,
+                        PITCH_NPZ, TAB_JSON, TAB_TEX, TAB_XML, TUNINGS, PipelineError, Tab,
+                        load_beats, load_chords, load_meta, load_notes, save_json)
 
 ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "web" / "index.html"
@@ -56,15 +56,16 @@ def write_viewer(tex: str, out: Path) -> None:
 
 
 def run(source: str, job_dir: Path, sep_model: str, device: str, force: bool,
-        tuning: str = "standard", on_stage=None) -> Path:
+        tuning: str = "standard", on_stage=None, repeats: str = "strict") -> Path:
     """on_stage(stage, progress_percent) is called before each stage (used by the job server).
     Percentages follow measured CPU time shares: separation ~30%, pitch ~60%."""
+    notes_file = NOTES_LOOSE_JSON if repeats == "loose" else NOTES_JSON
     steps = [
         ("input", 0, META, lambda: stage0_input.fetch(source, job_dir)),
         ("separation", 2, BASS_WAV, lambda: stage1_separate.separate(job_dir, sep_model, device)),
         ("pitch", 32, PITCH_NPZ, lambda: stage2_pitch.track(job_dir, device)),
         ("beats", 92, BEATS_JSON, lambda: stage3_beats.track(job_dir, device)),
-        ("notes", 95, NOTES_JSON, lambda: stage4_notes.segment(job_dir)),
+        ("notes", 95, notes_file, lambda: stage4_notes.segment(job_dir, repeats == "loose")),
         ("chords", 97, CHORDS_JSON, lambda: chords.detect(job_dir)),
     ]
     for name, pct, out, fn in steps:
@@ -80,7 +81,7 @@ def run(source: str, job_dir: Path, sep_model: str, device: str, force: bool,
         on_stage("render", 98)
 
     meta, beats = load_meta(job_dir / META), load_beats(job_dir / BEATS_JSON)
-    notes = load_notes(job_dir / NOTES_JSON)
+    notes = load_notes(job_dir / notes_file)
     if tuning == "auto":
         tuning = stage5_frets.detect_tuning(notes)
         print(f"[tuning] {tuning}")
@@ -115,13 +116,15 @@ def main() -> None:
     p.add_argument("--device", default="auto", help="auto, cpu or cuda")
     p.add_argument("--force", action="store_true", help="redo stages even if outputs exist")
     p.add_argument("--tuning", default="auto", choices=["auto", *sorted(TUNINGS)])
+    p.add_argument("--repeats", default="strict", choices=["strict", "loose"],
+                   help="loose: 같은 음 반복을 더 잘 잡는다(여린 발라드용, 빽빽한 곡은 오검출 증가)")
     a = p.parse_args()
     job_dir = ROOT / "jobs" / (a.job_id or job_id_for(a.source))
     job_dir.mkdir(parents=True, exist_ok=True)
     device = pick_device(a.device)
     print("device:", device)
     try:
-        out = run(a.source, job_dir, a.sep_model, device, a.force, a.tuning)
+        out = run(a.source, job_dir, a.sep_model, device, a.force, a.tuning, repeats=a.repeats)
     except PipelineError as e:
         sys.exit(f"오류: {e}")
     print("tab:", out)

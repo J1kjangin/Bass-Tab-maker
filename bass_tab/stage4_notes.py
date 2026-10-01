@@ -16,8 +16,8 @@ from pathlib import Path
 import librosa
 import numpy as np
 
-from .contracts import (BASS_WAV, BEATS_JSON, NOTES_JSON, PITCH_HOP_S, PITCH_NPZ,
-                        TICKS_PER_BEAT, Note, Pitch, load_beats, save_json)
+from .contracts import (BASS_WAV, BEATS_JSON, NOTES_JSON, NOTES_LOOSE_JSON, PITCH_HOP_S,
+                        PITCH_NPZ, TICKS_PER_BEAT, Note, Pitch, load_beats, save_json)
 
 MIN_RUN_FRAMES = 3        # 30 ms: shorter pitch excursions are treated as jitter
 MIN_NOTE_S = 0.05         # design doc; voiced time required inside a note interval
@@ -37,6 +37,10 @@ METER_PRIOR = (0.1, 0.35)  # (8th, 16th) penalties
 # continuations are removed there, so this gate can stay loose. 4 references: 6 dB -> 0.878,
 # 2.5 dB -> 0.889, 1 dB -> 0.872, 0 dB -> 0.805.
 REPLUCK_DB = 2.5
+# Loose mode (`--repeats loose`): a same-pitch onset also counts when its peak is at least this
+# percentile of the song's onset peaks. Helps sparse, legato songs where a repeated note barely
+# changes level; costs precision on dense ones, so it is off by default. See CLAUDE.md.
+LOOSE_STRENGTH_PCT = 90.0
 # Slide / passing tones: short, not plucked, close in pitch to a neighbour. The length limit
 # is relative to the 16th grid, not absolute: at 190 BPM a 16th is 79 ms, at 84 BPM 178 ms,
 # and a fixed 0.13 s limit started eating real 8th notes of the fast song (F1 0.78 -> 0.72).
@@ -76,12 +80,16 @@ def _fill_gaps(labels: np.ndarray) -> np.ndarray:
     return out
 
 
-def _onset_frames(bass_wav: Path) -> np.ndarray:
-    # Tried and no better on the references: capping how far backtracking may run (1-12
-    # envelope frames), and turning backtracking off.
+def _onset_frames(bass_wav: Path, with_strength: bool = False):
+    """Onsets in 10 ms frames, optionally with how strongly each one peaks in the onset
+    envelope (used by the loose re-pluck mode). Tried and no better on the references:
+    capping how far backtracking may run, and turning backtracking off."""
     y, sr = librosa.load(bass_wav, sr=ONSET_SR, mono=True)
-    t = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=ONSET_BACKTRACK)
-    return np.round(t / PITCH_HOP_S).astype(int)
+    env = librosa.onset.onset_strength(y=y, sr=sr)
+    peaks = librosa.onset.onset_detect(onset_envelope=env, sr=sr, backtrack=False)
+    starts = librosa.onset.onset_backtrack(peaks, env) if ONSET_BACKTRACK else peaks
+    frames = np.round(librosa.frames_to_time(starts, sr=sr) / PITCH_HOP_S).astype(int)
+    return (frames, env[peaks]) if with_strength else frames
 
 
 def _frame_rms(bass_wav: Path, n: int) -> np.ndarray:
@@ -90,14 +98,18 @@ def _frame_rms(bass_wav: Path, n: int) -> np.ndarray:
     return np.pad(rms, (0, max(0, n - len(rms))))[:n]
 
 
-def _is_repluck(k: int, midi: np.ndarray, rms: np.ndarray) -> bool:
-    """An onset inside a note of unchanged pitch counts only if the level jumps."""
+def _is_repluck(k: int, midi: np.ndarray, rms: np.ndarray, strength: float | None = None,
+                strong_cut: float | None = None) -> bool:
+    """An onset inside a note of unchanged pitch counts as a new note when the level jumps, or
+    (loose mode only) when the onset peaks as strongly as this song's other onsets."""
     n = len(midi)
     before, after = midi[max(k - 1, 0)], midi[min(k + 3, n - 1)]
     if k < 4 or k + 6 > n or before < 0 or before != after:
         return True  # pitch change, attack from silence, or edge of the song: keep
     rise = rms[k + 2:k + 6].max() / max(rms[k - 4:k].min(), 1e-9)
-    return 20 * np.log10(max(rise, 1e-9)) >= REPLUCK_DB
+    if 20 * np.log10(max(rise, 1e-9)) >= REPLUCK_DB:
+        return True
+    return strong_cut is not None and strength is not None and strength >= strong_cut
 
 
 def _note_label(labels: np.ndarray) -> int:
@@ -107,18 +119,27 @@ def _note_label(labels: np.ndarray) -> int:
 
 
 def segment_frames(pitch: Pitch, onset_frames: np.ndarray, rms: np.ndarray | None = None,
-                   tick_s: float | None = None) -> list[tuple[int, float, float]]:
-    """-> [(midi, start_s, end_s)] before quantization. rms: per-frame level for the
-    same-pitch re-pluck check (skipped when None). tick_s: seconds per 16th note."""
+                   tick_s: float | None = None, onset_strength: np.ndarray | None = None,
+                   loose_repeats: bool = False) -> list[tuple[int, float, float]]:
+    """-> [(midi, start_s, end_s)] before quantization. rms: per-frame level for the same-pitch
+    re-pluck check (skipped when None). tick_s: seconds per 16th note. onset_strength +
+    loose_repeats: also accept a strong same-pitch onset as a re-pluck."""
     voiced = ~np.isnan(pitch.f0)
     midi = np.full(len(pitch.f0), -1)
     midi[voiced] = np.round(librosa.hz_to_midi(pitch.f0[voiced])).astype(int)
     midi = _absorb_short(_fill_gaps(midi))
 
     n = len(midi)
-    onsets = np.unique(np.clip(onset_frames, 0, n - 1))
+    clipped = np.clip(onset_frames, 0, n - 1)
+    cut, strongest = None, {}
+    if loose_repeats and onset_strength is not None and len(onset_strength):
+        cut = float(np.percentile(onset_strength, LOOSE_STRENGTH_PCT))
+        for frame, value in zip(clipped, onset_strength):
+            strongest[int(frame)] = max(strongest.get(int(frame), 0.0), float(value))
+    onsets = np.unique(clipped)
     if rms is not None:
-        onsets = np.array([k for k in onsets if _is_repluck(int(k), midi, rms)], dtype=int)
+        onsets = np.array([k for k in onsets
+                           if _is_repluck(int(k), midi, rms, strongest.get(int(k)), cut)], dtype=int)
 
     def after_onset(k: int) -> bool:
         i = np.searchsorted(onsets, k, side="right") - 1
@@ -225,14 +246,17 @@ def quantize(raw: list[tuple[int, float, float]], beats: list[float], downbeats:
     return [by_tick[k] for k in sorted(by_tick)]
 
 
-def segment(job_dir: Path) -> list[Note]:
+def segment(job_dir: Path, loose_repeats: bool = False) -> list[Note]:
     job_dir = Path(job_dir)
     pitch = Pitch.load(job_dir / PITCH_NPZ)
     beats = load_beats(job_dir / BEATS_JSON)
     bass = job_dir / BASS_WAV
     tick_s = 60.0 / beats.bpm / TICKS_PER_BEAT
-    raw = segment_frames(pitch, _onset_frames(bass), _frame_rms(bass, len(pitch.f0)), tick_s)
+    onsets, strength = _onset_frames(bass, with_strength=True)
+    raw = segment_frames(pitch, onsets, _frame_rms(bass, len(pitch.f0)), tick_s,
+                         strength, loose_repeats)
     notes = quantize(raw, beats.beats, beats.downbeats, beats.beats_per_bar)
-    save_json(notes, job_dir / NOTES_JSON)
+    # the two modes cache side by side, so switching the option re-runs only this stage
+    save_json(notes, job_dir / (NOTES_LOOSE_JSON if loose_repeats else NOTES_JSON))
     return notes
 
