@@ -20,6 +20,16 @@ def test_open_strings():
     assert positions(assign(notes(28, 33, 38, 43))) == [(4, 0), (3, 0), (2, 0), (1, 0)]
 
 
+def test_prefers_the_lower_string_at_a_low_fret():
+    """A5 can be the A string open or the E string fret 5; the reference sheets use fret 5."""
+    assert positions(assign(notes(33))) == [(4, 5)]
+
+
+def test_high_frets_are_not_used_to_reach_a_lower_string():
+    """Without the high-fret cost the string preference put this run on the E string, fret 12."""
+    assert all(t.fret <= 9 for t in assign(notes(40, 41, 42, 43, 44)))
+
+
 def test_chromatic_run_stays_in_position():
     pos = positions(assign(notes(40, 41, 42, 43, 44)))
     assert pos == [(2, 2), (2, 3), (2, 4), (2, 5), (2, 6)]
